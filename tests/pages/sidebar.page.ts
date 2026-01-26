@@ -1,151 +1,35 @@
-import { Locator } from "@playwright/test";
+import { Page, Locator } from "@playwright/test";
 import { BasePage } from "./base.page";
 
-/**
- * Sidebar section identifiers matching SECTIONS_CONFIG keys.
- */
-export type SidebarSection =
-  | "general"
-  | "advanced"
-  | "postprocessing"
-  | "history"
-  | "debug"
-  | "about";
-
-/**
- * Sidebar section labels (English translations).
- */
-export const SECTION_LABELS: Record<SidebarSection, string> = {
-  general: "General",
-  advanced: "Advanced",
-  postprocessing: "Post Process",
-  history: "History",
-  debug: "Debug",
-  about: "About",
-};
-
-/**
- * All sections that are always visible (not gated by settings).
- */
-export const ALWAYS_VISIBLE_SECTIONS: SidebarSection[] = [
-  "general",
-  "advanced",
-  "history",
-  "about",
-];
-
-/**
- * Sections gated by settings.
- */
-export const CONDITIONAL_SECTIONS: SidebarSection[] = [
-  "postprocessing", // requires post_process_enabled
-  "debug", // requires debug_mode
-];
-
-/**
- * Page object for sidebar navigation.
- */
 export class SidebarPage extends BasePage {
-  /**
-   * Get the sidebar navigation element.
-   */
-  get container(): Locator {
-    return this.page.getByRole("navigation");
+  readonly sidebar: Locator;
+  readonly generalSection: Locator;
+  readonly advancedSection: Locator;
+  readonly historySection: Locator;
+  readonly aboutSection: Locator;
+
+  constructor(page: Page) {
+    super(page);
+    this.sidebar = page.getByRole("navigation");
+    this.generalSection = page.getByRole("button", { name: /general/i });
+    this.advancedSection = page.getByRole("button", { name: /advanced/i });
+    this.historySection = page.getByRole("button", { name: /history/i });
+    this.aboutSection = page.getByRole("button", { name: /about/i });
   }
 
-  /**
-   * Get the logo element.
-   */
-  get logo(): Locator {
-    return this.page.getByRole("img", { name: /logo/i });
+  async navigateToHistory(): Promise<void> {
+    await this.historySection.click();
   }
 
-  /**
-   * Get a section item by its label text.
-   */
-  getSectionByLabel(label: string): Locator {
-    return this.page.getByRole("button", { name: label });
+  async navigateToGeneral(): Promise<void> {
+    await this.generalSection.click();
   }
 
-  /**
-   * Get a section item by section ID.
-   */
-  getSection(section: SidebarSection): Locator {
-    return this.getSectionByLabel(SECTION_LABELS[section]);
+  async navigateToAdvanced(): Promise<void> {
+    await this.advancedSection.click();
   }
 
-  /**
-   * Click a section to navigate.
-   */
-  async clickSection(section: SidebarSection): Promise<void> {
-    await this.getSection(section).click();
-  }
-
-  /**
-   * Check if a section is currently active by checking aria-pressed.
-   */
-  async isSectionActive(section: SidebarSection): Promise<boolean> {
-    const sectionEl = this.getSection(section);
-    const pressed = await sectionEl.getAttribute("aria-pressed");
-    return pressed === "true";
-  }
-
-  /**
-   * Get the currently active section.
-   */
-  async getActiveSection(): Promise<SidebarSection | null> {
-    for (const section of [
-      ...ALWAYS_VISIBLE_SECTIONS,
-      ...CONDITIONAL_SECTIONS,
-    ]) {
-      const sectionEl = this.getSection(section);
-      const isVisible = await sectionEl.isVisible().catch(() => false);
-      if (isVisible && (await this.isSectionActive(section))) {
-        return section;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Get count of visible sections.
-   */
-  async getVisibleSectionCount(): Promise<number> {
-    let count = 0;
-    for (const section of [
-      ...ALWAYS_VISIBLE_SECTIONS,
-      ...CONDITIONAL_SECTIONS,
-    ]) {
-      const isVisible = await this.getSection(section)
-        .isVisible()
-        .catch(() => false);
-      if (isVisible) count++;
-    }
-    return count;
-  }
-
-  /**
-   * Get all visible section labels.
-   */
-  async getVisibleSectionLabels(): Promise<string[]> {
-    const labels: string[] = [];
-    for (const section of [
-      ...ALWAYS_VISIBLE_SECTIONS,
-      ...CONDITIONAL_SECTIONS,
-    ]) {
-      const sectionEl = this.getSection(section);
-      const isVisible = await sectionEl.isVisible().catch(() => false);
-      if (isVisible) {
-        labels.push(SECTION_LABELS[section]);
-      }
-    }
-    return labels;
-  }
-
-  /**
-   * Check if section is visible in sidebar.
-   */
-  async isSectionVisible(section: SidebarSection): Promise<boolean> {
-    return this.getSection(section).isVisible();
+  async navigateToAbout(): Promise<void> {
+    await this.aboutSection.click();
   }
 }
