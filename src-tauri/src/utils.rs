@@ -1,6 +1,6 @@
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::transcription::TranscriptionManager;
-use crate::operation_state::{OperationController, OperationState};
+use crate::operation_state::{OperationController, OperationPhase};
 use crate::shortcut;
 use crate::ManagedToggleState;
 use log::{debug, info, warn};
@@ -17,19 +17,16 @@ pub use crate::tray::*;
 /// Handles cancelling both recording and transcription operations and updates UI state.
 pub fn cancel_current_operation(app: &AppHandle) {
     let op_controller = app.state::<Arc<OperationController>>();
-    let current_state = op_controller.current_state();
+    let phase = op_controller.current_phase();
 
-    info!(
-        "Initiating operation cancellation (current state: {:?})...",
-        current_state
-    );
+    info!("Cancelling operation (phase: {:?})...", phase);
 
-    match current_state {
-        OperationState::Idle => {
+    match phase {
+        OperationPhase::Idle => {
             debug!("Cancel called but already idle - nothing to do");
             return;
         }
-        OperationState::Recording => {
+        OperationPhase::Recording => {
             // Cancel recording: discard audio samples
             let audio_manager = app.state::<Arc<AudioRecordingManager>>();
             audio_manager.cancel_recording();
@@ -38,9 +35,8 @@ pub fn cancel_current_operation(app: &AppHandle) {
             let tm = app.state::<Arc<TranscriptionManager>>();
             tm.maybe_unload_immediately("cancellation");
         }
-        OperationState::Processing => {
+        OperationPhase::Processing => {
             // Can't stop transcription mid-inference, but we can reset state
-            // The async task will complete but we've signaled we don't care
             debug!("Cancelling during processing - async task may still complete");
         }
     }
@@ -60,10 +56,10 @@ pub fn cancel_current_operation(app: &AppHandle) {
     change_tray_icon(app, crate::tray::TrayIconState::Idle);
     hide_recording_overlay(app);
 
-    // Reset state machine to Idle
-    op_controller.reset_to_idle();
+    // Release the lock
+    op_controller.abort();
 
-    info!("Operation cancellation completed - returned to idle state");
+    info!("Operation cancelled");
 }
 
 /// Check if using the Wayland display server protocol

@@ -1,27 +1,43 @@
-//! Operation lock with phase tracking.
+//! Operation lock - prevents concurrent operations.
 //!
-//! Prevents concurrent operations by holding a lock for the entire lifecycle
-//! (hotkey press → transcription complete → paste). The state tracks which
-//! phase we're in within that locked operation.
+//! This is a minimal concurrency gate: only one operation can run at a time.
+//! The lock is held from when recording starts until transcription completes.
+//!
+//! # Current Scope (PR 1)
+//!
+//! - Global lock that prevents starting a new operation if one is in progress
+//! - Phase tracking (Recording/Processing) for UI and cancel behavior
+//! - Pure state machine with no side effects - easy to test
+//! - Wired into actions.rs which still directly calls the managers
+//!
+//! # Future Work (PR 2)
+//!
+//! - OperationController becomes a facade that owns RecordingManager and
+//!   TranscriptionManager
+//! - Manager interfaces allow mock injection for integration testing
+//! - Tests can verify: "if recording fails, lock releases"
+//! - Could use permit/guard pattern for automatic cleanup on Drop
 //!
 //! # Usage
 //!
 //! ```ignore
 //! // Try to start an operation
-//! match controller.begin() {
-//!     Ok(()) => {
-//!         // Lock acquired, state is Recording
-//!         // Now perform side effects...
-//!         if !audio.start_recording() {
-//!             controller.reset_to_idle(); // Release lock on failure
-//!             return;
-//!         }
-//!     }
-//!     Err(current_state) => {
-//!         // Operation already in progress, blocked
-//!         return;
-//!     }
+//! if let Err(reason) = controller.begin() {
+//!     // Already busy - blocked
+//!     return;
 //! }
+//!
+//! // Do side effects...
+//! if !audio.start_recording() {
+//!     controller.abort(); // Release lock on failure
+//!     return;
+//! }
+//!
+//! // Later, transition to processing
+//! controller.advance();
+//!
+//! // When transcription completes
+//! controller.complete();
 //! ```
 //!
 //! # Related Issues
@@ -32,9 +48,16 @@
 use serde::Serialize;
 use std::sync::Mutex;
 
+/// Why an operation couldn't start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BusyReason {
+    Recording,
+    Processing,
+}
+
 /// Phase within an operation lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub enum OperationState {
+pub enum OperationPhase {
     /// No operation in progress. Lock available.
     Idle,
     /// Recording audio.
@@ -43,9 +66,9 @@ pub enum OperationState {
     Processing,
 }
 
-impl Default for OperationState {
+impl Default for OperationPhase {
     fn default() -> Self {
-        OperationState::Idle
+        OperationPhase::Idle
     }
 }
 
@@ -54,69 +77,69 @@ impl Default for OperationState {
 /// Only one operation can run at a time. The lock is held from
 /// when recording starts until transcription completes.
 pub struct OperationController {
-    state: Mutex<OperationState>,
+    phase: Mutex<OperationPhase>,
 }
 
 impl OperationController {
     pub fn new() -> Self {
         Self {
-            state: Mutex::new(OperationState::default()),
+            phase: Mutex::new(OperationPhase::default()),
         }
     }
 
     /// Try to start an operation. Returns Ok if lock acquired, Err if busy.
     ///
     /// On success, state becomes Recording. Caller should then perform
-    /// side effects. If side effects fail, call `reset_to_idle()`.
-    pub fn begin(&self) -> Result<(), OperationState> {
-        let mut state = self.state.lock().unwrap();
-        match *state {
-            OperationState::Idle => {
-                *state = OperationState::Recording;
+    /// side effects. If side effects fail, call `abort()`.
+    pub fn begin(&self) -> Result<(), BusyReason> {
+        let mut phase = self.phase.lock().unwrap();
+        match *phase {
+            OperationPhase::Idle => {
+                *phase = OperationPhase::Recording;
                 Ok(())
             }
-            ref other => Err(other.clone()),
+            OperationPhase::Recording => Err(BusyReason::Recording),
+            OperationPhase::Processing => Err(BusyReason::Processing),
         }
     }
 
     /// Transition from Recording to Processing.
     ///
     /// Returns Err if not currently recording.
-    pub fn advance(&self) -> Result<(), OperationState> {
-        let mut state = self.state.lock().unwrap();
-        match *state {
-            OperationState::Recording => {
-                *state = OperationState::Processing;
+    pub fn advance(&self) -> Result<(), BusyReason> {
+        let mut phase = self.phase.lock().unwrap();
+        match *phase {
+            OperationPhase::Recording => {
+                *phase = OperationPhase::Processing;
                 Ok(())
             }
-            ref other => Err(other.clone()),
+            OperationPhase::Idle => Err(BusyReason::Recording), // Not recording
+            OperationPhase::Processing => Err(BusyReason::Processing),
         }
     }
 
     /// Complete the operation and release the lock.
     ///
-    /// Idempotent - safe to call multiple times.
+    /// Safe to call from any state - resets to Idle.
     pub fn complete(&self) {
-        let mut state = self.state.lock().unwrap();
-        if matches!(*state, OperationState::Processing) {
-            *state = OperationState::Idle;
-        }
+        let mut phase = self.phase.lock().unwrap();
+        *phase = OperationPhase::Idle;
     }
 
     /// Force release the lock. Used for cancellation or error recovery.
-    pub fn reset_to_idle(&self) {
-        let mut state = self.state.lock().unwrap();
-        *state = OperationState::Idle;
+    /// Alias for complete().
+    pub fn abort(&self) {
+        self.complete();
     }
 
     /// Check if an operation is in progress.
     pub fn is_busy(&self) -> bool {
-        !matches!(*self.state.lock().unwrap(), OperationState::Idle)
+        !matches!(*self.phase.lock().unwrap(), OperationPhase::Idle)
     }
 
     /// Get current phase (for UI/debugging).
-    pub fn current_state(&self) -> OperationState {
-        self.state.lock().unwrap().clone()
+    pub fn current_phase(&self) -> OperationPhase {
+        self.phase.lock().unwrap().clone()
     }
 }
 
@@ -133,7 +156,7 @@ mod tests {
     #[test]
     fn starts_idle() {
         let c = OperationController::new();
-        assert_eq!(c.current_state(), OperationState::Idle);
+        assert_eq!(c.current_phase(), OperationPhase::Idle);
         assert!(!c.is_busy());
     }
 
@@ -143,20 +166,20 @@ mod tests {
 
         // Start -> Recording
         assert!(c.begin().is_ok());
-        assert_eq!(c.current_state(), OperationState::Recording);
+        assert_eq!(c.current_phase(), OperationPhase::Recording);
         assert!(c.is_busy());
 
         // Can't start again while busy
         assert!(c.begin().is_err());
 
-        // Stop -> Processing
+        // Advance -> Processing
         assert!(c.advance().is_ok());
-        assert_eq!(c.current_state(), OperationState::Processing);
+        assert_eq!(c.current_phase(), OperationPhase::Processing);
         assert!(c.is_busy());
 
         // Complete -> Idle
         c.complete();
-        assert_eq!(c.current_state(), OperationState::Idle);
+        assert_eq!(c.current_phase(), OperationPhase::Idle);
         assert!(!c.is_busy());
 
         // Can start again
@@ -164,13 +187,13 @@ mod tests {
     }
 
     #[test]
-    fn reset_releases_lock() {
+    fn abort_releases_lock() {
         let c = OperationController::new();
 
         c.begin().unwrap();
         assert!(c.is_busy());
 
-        c.reset_to_idle();
+        c.abort();
         assert!(!c.is_busy());
 
         // Can start again
@@ -181,16 +204,16 @@ mod tests {
     fn complete_is_idempotent() {
         let c = OperationController::new();
 
-        // Complete from Idle is no-op
+        // Complete from Idle is fine
         c.complete();
-        assert_eq!(c.current_state(), OperationState::Idle);
+        assert_eq!(c.current_phase(), OperationPhase::Idle);
 
         // Multiple completes are fine
         c.begin().unwrap();
         c.advance().unwrap();
         c.complete();
         c.complete();
-        assert_eq!(c.current_state(), OperationState::Idle);
+        assert_eq!(c.current_phase(), OperationPhase::Idle);
     }
 
     #[test]
@@ -215,182 +238,115 @@ mod tests {
     }
 
     // --- Integration-style tests ---
-    // These simulate the flow in actions.rs without needing Tauri
 
-    /// Simulates: user triggers hotkey, recording starts successfully
     #[test]
-    fn integration_successful_start() {
+    fn hardware_failure_releases_lock() {
         let c = OperationController::new();
 
-        // Simulate actions.rs start() flow
-        match c.begin() {
-            Ok(()) => {
-                // Side effect: start_recording() succeeds
-                let recording_started = true; // mock success
-                if !recording_started {
-                    c.reset_to_idle();
-                }
-            }
-            Err(_) => panic!("Should not be blocked"),
+        c.begin().unwrap();
+
+        // Hardware fails
+        let hardware_ok = false;
+        if !hardware_ok {
+            c.abort();
         }
 
-        assert_eq!(c.current_state(), OperationState::Recording);
-    }
-
-    /// Simulates: user triggers hotkey, but microphone fails to open
-    #[test]
-    fn integration_start_fails_releases_lock() {
-        let c = OperationController::new();
-
-        // Simulate actions.rs start() flow with failure
-        match c.begin() {
-            Ok(()) => {
-                // Side effect: start_recording() fails
-                let recording_started = false; // mock failure
-                if !recording_started {
-                    c.reset_to_idle();
-                }
-            }
-            Err(_) => panic!("Should not be blocked"),
-        }
-
-        // Lock should be released
-        assert_eq!(c.current_state(), OperationState::Idle);
-        assert!(!c.is_busy());
-
-        // Can try again
+        assert_eq!(c.current_phase(), OperationPhase::Idle);
         assert!(c.begin().is_ok());
     }
 
-    /// Simulates: user triggers hotkey while already recording
     #[test]
-    fn integration_blocked_during_recording() {
+    fn blocked_during_recording() {
         let c = OperationController::new();
 
-        // First operation starts
         c.begin().unwrap();
 
-        // Second attempt blocked
         let result = c.begin();
-        assert!(matches!(result, Err(OperationState::Recording)));
+        assert!(matches!(result, Err(BusyReason::Recording)));
     }
 
-    /// Simulates: user triggers hotkey while transcription in progress
     #[test]
-    fn integration_blocked_during_processing() {
+    fn blocked_during_processing() {
         let c = OperationController::new();
 
-        // Operation in processing phase
         c.begin().unwrap();
         c.advance().unwrap();
 
-        // New start attempt blocked
         let result = c.begin();
-        assert!(matches!(result, Err(OperationState::Processing)));
+        assert!(matches!(result, Err(BusyReason::Processing)));
     }
 
-    /// Simulates: full successful operation from start to paste
     #[test]
-    fn integration_full_success() {
+    fn full_success() {
         let c = OperationController::new();
 
-        // Start recording
         c.begin().unwrap();
-        // ... user speaks ...
-
-        // Stop recording, begin transcription
         c.advance().unwrap();
-        // ... transcription happens async ...
-
-        // Transcription complete
         c.complete();
 
-        assert_eq!(c.current_state(), OperationState::Idle);
-
-        // Can start new operation
+        assert_eq!(c.current_phase(), OperationPhase::Idle);
         assert!(c.begin().is_ok());
     }
 
-    /// Simulates: user cancels during recording
     #[test]
-    fn integration_cancel_during_recording() {
+    fn cancel_during_recording() {
         let c = OperationController::new();
 
         c.begin().unwrap();
-        assert_eq!(c.current_state(), OperationState::Recording);
+        c.abort();
 
-        // User hits cancel
-        c.reset_to_idle();
-
-        assert_eq!(c.current_state(), OperationState::Idle);
+        assert_eq!(c.current_phase(), OperationPhase::Idle);
         assert!(c.begin().is_ok());
     }
 
-    /// Simulates: user cancels during transcription
     #[test]
-    fn integration_cancel_during_processing() {
+    fn cancel_during_processing() {
         let c = OperationController::new();
 
         c.begin().unwrap();
         c.advance().unwrap();
-        assert_eq!(c.current_state(), OperationState::Processing);
+        c.abort();
 
-        // User hits cancel (can't stop ML inference, but releases lock)
-        c.reset_to_idle();
-
-        assert_eq!(c.current_state(), OperationState::Idle);
+        assert_eq!(c.current_phase(), OperationPhase::Idle);
         assert!(c.begin().is_ok());
     }
 
-    /// Simulates: transcription fails, lock should still be released
     #[test]
-    fn integration_transcription_error_releases_lock() {
+    fn async_completion() {
         use std::sync::Arc;
+        use std::thread;
 
         let c = Arc::new(OperationController::new());
 
         c.begin().unwrap();
         c.advance().unwrap();
 
-        // Simulate async task that errors
         let c2 = Arc::clone(&c);
-        let handle = std::thread::spawn(move || {
-            // Transcription fails
-            let _transcription_result: Result<String, &str> = Err("model not loaded");
-
-            // But complete() is always called (via guard pattern)
+        let handle = thread::spawn(move || {
+            // Transcription happens...
             c2.complete();
         });
 
         handle.join().unwrap();
 
-        // Lock released despite error
-        assert_eq!(c.current_state(), OperationState::Idle);
+        assert_eq!(c.current_phase(), OperationPhase::Idle);
     }
 
-    /// Simulates: rapid double-tap (the bug from #641)
     #[test]
-    fn integration_rapid_double_tap() {
+    fn rapid_double_tap() {
         use std::sync::Arc;
         use std::thread;
         use std::time::Duration;
 
         let c = Arc::new(OperationController::new());
 
-        // First tap starts
         let c1 = Arc::clone(&c);
-        let h1 = thread::spawn(move || {
-            c1.begin().is_ok()
-        });
+        let h1 = thread::spawn(move || c1.begin().is_ok());
 
-        // Tiny delay
         thread::sleep(Duration::from_micros(100));
 
-        // Second tap (should be blocked)
         let c2 = Arc::clone(&c);
-        let h2 = thread::spawn(move || {
-            c2.begin().is_ok()
-        });
+        let h2 = thread::spawn(move || c2.begin().is_ok());
 
         let first = h1.join().unwrap();
         let second = h2.join().unwrap();

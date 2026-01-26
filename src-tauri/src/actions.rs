@@ -221,18 +221,13 @@ impl ShortcutAction for TranscribeAction {
 
         let op_controller = app.state::<Arc<OperationController>>();
 
-        // Atomically try to transition Idle -> Recording
-        match op_controller.begin() {
-            Ok(()) => {
-                // State is now Recording - proceed with side effects
-            }
-            Err(current_state) => {
-                debug!(
-                    "TranscribeAction::start blocked - operation already in progress (state: {:?})",
-                    current_state
-                );
-                return;
-            }
+        // Try to start an operation
+        if let Err(reason) = op_controller.begin() {
+            debug!(
+                "TranscribeAction::start blocked - operation already in progress ({:?})",
+                reason
+            );
+            return;
         }
 
         // Load model in the background
@@ -281,10 +276,10 @@ impl ShortcutAction for TranscribeAction {
             }
         };
 
-        // If side effect failed, rollback state
+        // If hardware failed, release the lock
         if !recording_started {
-            debug!("Recording failed to start - rolling back state to Idle");
-            op_controller.reset_to_idle();
+            debug!("Recording failed to start - releasing lock");
+            op_controller.abort();
             return;
         }
 
