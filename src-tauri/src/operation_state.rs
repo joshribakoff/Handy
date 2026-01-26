@@ -1,10 +1,49 @@
 //! Pure state machine for operation lifecycle management.
 //!
-//! This module provides a simple, testable state machine that prevents
-//! concurrent operations. The design is intentionally simple:
-//! - Only one operation can run at a time
-//! - Operations cannot be cancelled mid-transcription
-//! - State transitions are explicit and tested
+//! # Overview
+//!
+//! A voice transcription operation has multiple phases that form ONE atomic
+//! operation from the user's perspective:
+//!
+//! ```text
+//! ┌──────┐   start    ┌───────────┐   stop    ┌────────────┐  complete  ┌──────┐
+//! │ Idle │ ────────▶  │ Recording │ ───────▶  │ Processing │ ─────────▶ │ Idle │
+//! └──────┘            └───────────┘           └────────────┘            └──────┘
+//!    │                                              │
+//!    │◀─────────────── BLOCKED ─────────────────────│
+//! ```
+//!
+//! The key insight: you cannot start a new operation until the ENTIRE flow
+//! completes (including transcription). This prevents race conditions when
+//! users rapidly press the hotkey.
+//!
+//! # Design
+//!
+//! - **Pure state machine**: No side effects, no async, no mutexes inside
+//! - **Caller handles effects**: The orchestration layer checks state,
+//!   runs side effects (show UI, capture audio, etc.), then updates state
+//! - **Synchronous**: State transitions are immediate; blocking is just
+//!   returning `TransitionResult::Blocked`
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let state = OperationState::default();
+//!
+//! // Caller attempts transition, handles side effects if allowed
+//! let (new_state, result) = state.try_start_recording();
+//! if matches!(result, TransitionResult::Ok) {
+//!     show_overlay("recording");
+//!     start_audio_capture();
+//!     state = new_state;
+//! }
+//! // If Blocked, caller does nothing - operation already in progress
+//! ```
+//!
+//! # Related Issues
+//!
+//! - #641: App crashes when push-to-talk hit twice in a row
+//! - #462: Race -> crash on rapid toggle
 
 use serde::Serialize;
 
