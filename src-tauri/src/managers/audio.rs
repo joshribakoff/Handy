@@ -101,12 +101,6 @@ const WHISPER_SAMPLE_RATE: usize = 16000;
 /* ──────────────────────────────────────────────────────────────── */
 
 #[derive(Clone, Debug)]
-pub enum RecordingState {
-    Idle,
-    Recording { binding_id: String },
-}
-
-#[derive(Clone, Debug)]
 pub enum MicrophoneMode {
     AlwaysOn,
     OnDemand,
@@ -141,7 +135,6 @@ fn create_audio_recorder(
 
 #[derive(Clone)]
 pub struct AudioRecordingManager {
-    state: Arc<Mutex<RecordingState>>,
     mode: Arc<Mutex<MicrophoneMode>>,
     app_handle: tauri::AppHandle,
 
@@ -163,7 +156,6 @@ impl AudioRecordingManager {
         };
 
         let manager = Self {
-            state: Arc::new(Mutex::new(RecordingState::Idle)),
             mode: Arc::new(Mutex::new(mode.clone())),
             app_handle: app.clone(),
 
@@ -314,7 +306,8 @@ impl AudioRecordingManager {
 
         match (cur_mode, &new_mode) {
             (MicrophoneMode::AlwaysOn, MicrophoneMode::OnDemand) => {
-                if matches!(*self.state.lock().unwrap(), RecordingState::Idle) {
+                // Only stop microphone if not currently recording
+                if !*self.is_recording.lock().unwrap() {
                     drop(mode_guard);
                     self.stop_microphone_stream();
                 }
@@ -332,33 +325,26 @@ impl AudioRecordingManager {
 
     /* ---------- recording --------------------------------------------------- */
 
-    pub fn try_start_recording(&self, binding_id: &str) -> bool {
-        let mut state = self.state.lock().unwrap();
-
-        if let RecordingState::Idle = *state {
-            // Ensure microphone is open in on-demand mode
-            if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
-                if let Err(e) = self.start_microphone_stream() {
-                    error!("Failed to open microphone stream: {e}");
-                    return false;
-                }
+    /// Start recording audio. Returns true if started successfully.
+    /// Note: Call OperationController.maybe_start_recording() first to check state.
+    pub fn start_recording(&self) -> bool {
+        // Ensure microphone is open in on-demand mode
+        if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
+            if let Err(e) = self.start_microphone_stream() {
+                error!("Failed to open microphone stream: {e}");
+                return false;
             }
-
-            if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
-                if rec.start().is_ok() {
-                    *self.is_recording.lock().unwrap() = true;
-                    *state = RecordingState::Recording {
-                        binding_id: binding_id.to_string(),
-                    };
-                    debug!("Recording started for binding {binding_id}");
-                    return true;
-                }
-            }
-            error!("Recorder not available");
-            false
-        } else {
-            false
         }
+
+        if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            if rec.start().is_ok() {
+                *self.is_recording.lock().unwrap() = true;
+                debug!("Recording started");
+                return true;
+            }
+        }
+        error!("Recorder not available");
+        false
     }
 
     pub fn update_selected_device(&self) -> Result<(), anyhow::Error> {
@@ -370,65 +356,47 @@ impl AudioRecordingManager {
         Ok(())
     }
 
-    pub fn stop_recording(&self, binding_id: &str) -> Option<Vec<f32>> {
-        let mut state = self.state.lock().unwrap();
-
-        match *state {
-            RecordingState::Recording {
-                binding_id: ref active,
-            } if active == binding_id => {
-                *state = RecordingState::Idle;
-                drop(state);
-
-                let samples = if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
-                    match rec.stop() {
-                        Ok(buf) => buf,
-                        Err(e) => {
-                            error!("stop() failed: {e}");
-                            Vec::new()
-                        }
-                    }
-                } else {
-                    error!("Recorder not available");
+    /// Stop recording and return the audio samples.
+    /// Note: Call OperationController.maybe_stop_recording() first to transition state.
+    pub fn stop_recording(&self) -> Vec<f32> {
+        let samples = if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            match rec.stop() {
+                Ok(buf) => buf,
+                Err(e) => {
+                    error!("stop() failed: {e}");
                     Vec::new()
-                };
-
-                *self.is_recording.lock().unwrap() = false;
-
-                // In on-demand mode turn the mic off again
-                if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
-                    self.stop_microphone_stream();
-                }
-
-                // Pad if very short
-                let s_len = samples.len();
-                // debug!("Got {} samples", s_len);
-                if s_len < WHISPER_SAMPLE_RATE && s_len > 0 {
-                    let mut padded = samples;
-                    padded.resize(WHISPER_SAMPLE_RATE * 5 / 4, 0.0);
-                    Some(padded)
-                } else {
-                    Some(samples)
                 }
             }
-            _ => None,
+        } else {
+            error!("Recorder not available");
+            Vec::new()
+        };
+
+        *self.is_recording.lock().unwrap() = false;
+
+        // In on-demand mode turn the mic off again
+        if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
+            self.stop_microphone_stream();
+        }
+
+        // Pad if very short
+        let s_len = samples.len();
+        if s_len < WHISPER_SAMPLE_RATE && s_len > 0 {
+            let mut padded = samples;
+            padded.resize(WHISPER_SAMPLE_RATE * 5 / 4, 0.0);
+            padded
+        } else {
+            samples
         }
     }
+
     pub fn is_recording(&self) -> bool {
-        matches!(
-            *self.state.lock().unwrap(),
-            RecordingState::Recording { .. }
-        )
+        *self.is_recording.lock().unwrap()
     }
 
     /// Cancel any ongoing recording without returning audio samples
     pub fn cancel_recording(&self) {
-        let mut state = self.state.lock().unwrap();
-
-        if let RecordingState::Recording { .. } = *state {
-            *state = RecordingState::Idle;
-            drop(state);
-
+        if *self.is_recording.lock().unwrap() {
             if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
                 let _ = rec.stop(); // Discard the result
             }

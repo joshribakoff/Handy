@@ -233,7 +233,6 @@ impl ShortcutAction for TranscribeAction {
         let tm = app.state::<Arc<TranscriptionManager>>();
         tm.initiate_model_load();
 
-        let binding_id = binding_id.to_string();
         change_tray_icon(app, TrayIconState::Recording);
         show_recording_overlay(app);
 
@@ -257,14 +256,14 @@ impl ShortcutAction for TranscribeAction {
                 rm_clone.apply_mute();
             });
 
-            recording_started = rm.try_start_recording(&binding_id);
+            recording_started = rm.start_recording();
             debug!("Recording started: {}", recording_started);
         } else {
             // On-demand mode: Start recording first, then play audio feedback, then apply mute
             // This allows the microphone to be activated before playing the sound
             debug!("On-demand mode: Starting recording first, then audio feedback");
             let recording_start_time = Instant::now();
-            if rm.try_start_recording(&binding_id) {
+            if rm.start_recording() {
                 recording_started = true;
                 debug!("Recording started in {:?}", recording_start_time.elapsed());
                 // Small delay to ensure microphone stream is active
@@ -326,22 +325,20 @@ impl ShortcutAction for TranscribeAction {
         // Play audio feedback for recording stop
         play_feedback_sound(app, SoundType::Stop);
 
-        let binding_id = binding_id.to_string(); // Clone binding_id for the async task
+        let binding_id = binding_id.to_string(); // Clone binding_id for toggle state
 
         tauri::async_runtime::spawn(async move {
-            let binding_id = binding_id.clone(); // Clone for the inner async task
-            debug!(
-                "Starting async transcription task for binding: {}",
-                binding_id
-            );
+            debug!("Starting async transcription task");
 
             let stop_recording_time = Instant::now();
-            if let Some(samples) = rm.stop_recording(&binding_id) {
-                debug!(
-                    "Recording stopped and samples retrieved in {:?}, sample count: {}",
-                    stop_recording_time.elapsed(),
-                    samples.len()
-                );
+            let samples = rm.stop_recording();
+            debug!(
+                "Recording stopped and samples retrieved in {:?}, sample count: {}",
+                stop_recording_time.elapsed(),
+                samples.len()
+            );
+
+            if !samples.is_empty() {
 
                 let transcription_time = Instant::now();
                 let samples_clone = samples.clone(); // Clone for history saving

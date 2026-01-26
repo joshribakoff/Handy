@@ -1,5 +1,6 @@
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::transcription::TranscriptionManager;
+use crate::operation_state::OperationController;
 use crate::shortcut;
 use crate::ManagedToggleState;
 use log::{info, warn};
@@ -40,6 +41,10 @@ pub fn cancel_current_operation(app: &AppHandle) {
     // Unload model if immediate unload is enabled
     let tm = app.state::<Arc<TranscriptionManager>>();
     tm.maybe_unload_immediately("cancellation");
+
+    // Reset operation state machine to Idle
+    let op_controller = app.state::<Arc<OperationController>>();
+    op_controller.reset_to_idle();
 
     info!("Operation cancellation completed - returned to idle state");
 }

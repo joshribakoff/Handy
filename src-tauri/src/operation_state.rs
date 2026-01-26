@@ -187,6 +187,13 @@ impl OperationController {
         }
     }
 
+    /// Force reset to Idle state. Used for cancellation.
+    /// This bypasses normal state transitions - use only for cancel/error recovery.
+    pub fn reset_to_idle(&self) {
+        let mut state = self.state.lock().unwrap();
+        *state = OperationState::Idle;
+    }
+
     /// Get the current state (for debugging/UI).
     pub fn current_state(&self) -> OperationState {
         self.state.lock().unwrap().clone()
