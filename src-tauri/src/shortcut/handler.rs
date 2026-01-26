@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 use crate::actions::ACTION_MAP;
-use crate::managers::audio::AudioRecordingManager;
+use crate::operation_state::OperationController;
 use crate::settings::get_settings;
 use crate::ManagedToggleState;
 
@@ -16,7 +16,7 @@ use crate::ManagedToggleState;
 ///
 /// This function contains the shared logic for:
 /// - Looking up the action in ACTION_MAP
-/// - Handling the cancel binding (only fires when recording)
+/// - Handling the cancel binding (fires when any operation is in progress)
 /// - Handling push-to-talk mode (start on press, stop on release)
 /// - Handling toggle mode (toggle state on press only)
 ///
@@ -41,10 +41,10 @@ pub fn handle_shortcut_event(
         return;
     };
 
-    // Cancel binding: only fires when recording and key is pressed
+    // Cancel binding: fires when any operation is in progress (Recording or Processing)
     if binding_id == "cancel" {
-        let audio_manager = app.state::<Arc<AudioRecordingManager>>();
-        if audio_manager.is_recording() && is_pressed {
+        let op_controller = app.state::<Arc<OperationController>>();
+        if op_controller.is_busy() && is_pressed {
             action.start(app, binding_id, hotkey_string);
         }
         return;

@@ -357,7 +357,7 @@ impl AudioRecordingManager {
     }
 
     /// Stop recording and return the audio samples.
-    /// Note: Call OperationController.maybe_stop_recording() first to transition state.
+    /// Note: Call OperationController.stop_recording() first to transition state.
     pub fn stop_recording(&self) -> Vec<f32> {
         let samples = if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
             match rec.stop() {

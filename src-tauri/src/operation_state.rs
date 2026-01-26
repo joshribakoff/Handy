@@ -1,129 +1,46 @@
-//! Pure state machine for operation lifecycle management.
+//! Operation lock with phase tracking.
 //!
-//! # Overview
-//!
-//! A voice transcription operation has multiple phases that form ONE atomic
-//! operation from the user's perspective:
-//!
-//! ```text
-//! ┌──────┐   start    ┌───────────┐   stop    ┌────────────┐  complete  ┌──────┐
-//! │ Idle │ ────────▶  │ Recording │ ───────▶  │ Processing │ ─────────▶ │ Idle │
-//! └──────┘            └───────────┘           └────────────┘            └──────┘
-//!    │                                              │
-//!    │◀─────────────── BLOCKED ─────────────────────│
-//! ```
-//!
-//! The key insight: you cannot start a new operation until the ENTIRE flow
-//! completes (including transcription). This prevents race conditions when
-//! users rapidly press the hotkey.
-//!
-//! # Design
-//!
-//! - **Pure state machine**: No side effects, no async, no mutexes inside
-//! - **State machine is source of truth**: Caller attempts a transition via
-//!   `maybe_*` methods. If the transition succeeds (returns `true`), the state
-//!   is already updated atomically. Caller then executes side effects (show UI,
-//!   capture audio, etc.). This ensures UI reflects actual state machine state.
-//! - **Synchronous**: State transitions are immediate; blocking is just
-//!   returning `TransitionResult::Blocked` (or `false` from controller methods)
+//! Prevents concurrent operations by holding a lock for the entire lifecycle
+//! (hotkey press → transcription complete → paste). The state tracks which
+//! phase we're in within that locked operation.
 //!
 //! # Usage
 //!
 //! ```ignore
-//! let state = OperationState::default();
-//!
-//! // Caller attempts transition, handles side effects if allowed
-//! let (new_state, result) = state.maybe_start_recording();
-//! if matches!(result, TransitionResult::Ok) {
-//!     show_overlay("recording");
-//!     start_audio_capture();
-//!     state = new_state;
+//! // Try to start an operation
+//! match controller.maybe_start_recording() {
+//!     Ok(()) => {
+//!         // Lock acquired, state is Recording
+//!         // Now perform side effects...
+//!         if !audio.start_recording() {
+//!             controller.reset_to_idle(); // Release lock on failure
+//!             return;
+//!         }
+//!     }
+//!     Err(current_state) => {
+//!         // Operation already in progress, blocked
+//!         return;
+//!     }
 //! }
-//! // If Blocked, caller does nothing - operation already in progress
 //! ```
 //!
 //! # Related Issues
 //!
 //! - #641: App crashes when push-to-talk hit twice in a row
 //! - #462: Race -> crash on rapid toggle
-//!
-//! # Future Enhancements
-//!
-//! TODO: Instead of blocking when user presses hotkey during Processing,
-//! we could set a "pending" flag. When processing completes, check the flag
-//! and auto-start the next recording instead of going to Idle. This would
-//! feel more responsive for rapid dictation workflows.
-//!
-//! TODO: Consider Mac-like real-time segmentation where we detect pauses
-//! during recording and create nested transcribe operations for each segment.
-//! This would make transcription feel real-time and greatly reduce the
-//! processing time at the end, minimizing the overlap period during which
-//! race conditions could occur. However, this adds complexity, so we focus
-//! on simplicity first (blocking concurrent operations) before adding this.
 
 use serde::Serialize;
+use std::sync::Mutex;
 
-/// The possible states of an operation lifecycle.
+/// Phase within an operation lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum OperationState {
-    /// Ready to start a new operation
+    /// No operation in progress. Lock available.
     Idle,
-    /// Currently recording audio
+    /// Recording audio.
     Recording,
-    /// Processing/transcribing the recording
+    /// Transcribing and processing.
     Processing,
-}
-
-/// Result of attempting a state transition
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TransitionResult {
-    /// Transition succeeded
-    Ok,
-    /// Transition blocked - operation already in progress
-    Blocked { current_state: OperationState },
-}
-
-impl OperationState {
-    /// Attempt to start recording. Only succeeds from Idle state.
-    pub fn maybe_start_recording(&self) -> (OperationState, TransitionResult) {
-        match self {
-            OperationState::Idle => (OperationState::Recording, TransitionResult::Ok),
-            other => (
-                other.clone(),
-                TransitionResult::Blocked {
-                    current_state: other.clone(),
-                },
-            ),
-        }
-    }
-
-    /// Attempt to stop recording and begin processing.
-    /// Only succeeds from Recording state.
-    pub fn maybe_stop_recording(&self) -> (OperationState, TransitionResult) {
-        match self {
-            OperationState::Recording => (OperationState::Processing, TransitionResult::Ok),
-            other => (
-                other.clone(),
-                TransitionResult::Blocked {
-                    current_state: other.clone(),
-                },
-            ),
-        }
-    }
-
-    /// Mark processing as complete, return to Idle.
-    /// Only succeeds from Processing state.
-    pub fn complete_processing(&self) -> (OperationState, TransitionResult) {
-        match self {
-            OperationState::Processing => (OperationState::Idle, TransitionResult::Ok),
-            other => (
-                other.clone(),
-                TransitionResult::Blocked {
-                    current_state: other.clone(),
-                },
-            ),
-        }
-    }
 }
 
 impl Default for OperationState {
@@ -132,14 +49,10 @@ impl Default for OperationState {
     }
 }
 
-// --- Thread-safe wrapper for use as Tauri managed state ---
-
-use std::sync::Mutex;
-
-/// Thread-safe operation controller for use with Tauri's managed state.
+/// Holds the operation lock and tracks current phase.
 ///
-/// Wraps the pure state machine with a Mutex for safe concurrent access.
-/// The caller is responsible for side effects - this just manages state.
+/// Only one operation can run at a time. The lock is held from
+/// when recording starts until transcription completes.
 pub struct OperationController {
     state: Mutex<OperationState>,
 }
@@ -151,47 +64,57 @@ impl OperationController {
         }
     }
 
-    /// Attempt to start recording. Returns true if allowed, false if blocked.
-    pub fn maybe_start_recording(&self) -> bool {
+    /// Try to start an operation. Returns Ok if lock acquired, Err if busy.
+    ///
+    /// On success, state becomes Recording. Caller should then perform
+    /// side effects. If side effects fail, call `reset_to_idle()`.
+    pub fn maybe_start_recording(&self) -> Result<(), OperationState> {
         let mut state = self.state.lock().unwrap();
-        let (new_state, result) = state.maybe_start_recording();
-        if matches!(result, TransitionResult::Ok) {
-            *state = new_state;
-            true
-        } else {
-            false
+        match *state {
+            OperationState::Idle => {
+                *state = OperationState::Recording;
+                Ok(())
+            }
+            ref other => Err(other.clone()),
         }
     }
 
-    /// Stop recording and transition to Processing state.
-    /// If already Processing or Idle, this is a no-op.
-    /// Stop always succeeds - there's no "maybe" about stopping.
-    pub fn stop_recording(&self) {
+    /// Transition from Recording to Processing.
+    ///
+    /// Returns Err if not currently recording.
+    pub fn stop_recording(&self) -> Result<(), OperationState> {
         let mut state = self.state.lock().unwrap();
-        if matches!(*state, OperationState::Recording) {
-            *state = OperationState::Processing;
+        match *state {
+            OperationState::Recording => {
+                *state = OperationState::Processing;
+                Ok(())
+            }
+            ref other => Err(other.clone()),
         }
-        // If already Processing/Idle, do nothing - stop request is satisfied
     }
 
-    /// Mark processing as complete and return to Idle.
-    /// If already Idle, this is a no-op.
-    pub fn complete_processing(&self) {
+    /// Complete the operation and release the lock.
+    ///
+    /// Idempotent - safe to call multiple times.
+    pub fn complete(&self) {
         let mut state = self.state.lock().unwrap();
         if matches!(*state, OperationState::Processing) {
             *state = OperationState::Idle;
         }
-        // If already Idle, do nothing - completion request is satisfied
     }
 
-    /// Force reset to Idle state. Used for cancellation.
-    /// This bypasses normal state transitions - use only for cancel/error recovery.
+    /// Force release the lock. Used for cancellation or error recovery.
     pub fn reset_to_idle(&self) {
         let mut state = self.state.lock().unwrap();
         *state = OperationState::Idle;
     }
 
-    /// Get the current state (for debugging/UI).
+    /// Check if an operation is in progress.
+    pub fn is_busy(&self) -> bool {
+        !matches!(*self.state.lock().unwrap(), OperationState::Idle)
+    }
+
+    /// Get current phase (for UI/debugging).
     pub fn current_state(&self) -> OperationState {
         self.state.lock().unwrap().clone()
     }
@@ -209,201 +132,85 @@ mod tests {
 
     #[test]
     fn starts_idle() {
-        let state = OperationState::default();
-        assert_eq!(state, OperationState::Idle);
+        let c = OperationController::new();
+        assert_eq!(c.current_state(), OperationState::Idle);
+        assert!(!c.is_busy());
     }
 
     #[test]
-    fn can_start_recording_from_idle() {
-        let state = OperationState::Idle;
-        let (new_state, result) = state.maybe_start_recording();
+    fn lifecycle() {
+        let c = OperationController::new();
 
-        assert_eq!(new_state, OperationState::Recording);
-        assert_eq!(result, TransitionResult::Ok);
+        // Start -> Recording
+        assert!(c.maybe_start_recording().is_ok());
+        assert_eq!(c.current_state(), OperationState::Recording);
+        assert!(c.is_busy());
+
+        // Can't start again while busy
+        assert!(c.maybe_start_recording().is_err());
+
+        // Stop -> Processing
+        assert!(c.stop_recording().is_ok());
+        assert_eq!(c.current_state(), OperationState::Processing);
+        assert!(c.is_busy());
+
+        // Complete -> Idle
+        c.complete();
+        assert_eq!(c.current_state(), OperationState::Idle);
+        assert!(!c.is_busy());
+
+        // Can start again
+        assert!(c.maybe_start_recording().is_ok());
     }
 
     #[test]
-    fn cannot_start_recording_while_recording() {
-        let state = OperationState::Recording;
-        let (new_state, result) = state.maybe_start_recording();
+    fn reset_releases_lock() {
+        let c = OperationController::new();
 
-        assert_eq!(new_state, OperationState::Recording);
-        assert_eq!(
-            result,
-            TransitionResult::Blocked {
-                current_state: OperationState::Recording
-            }
-        );
+        c.maybe_start_recording().unwrap();
+        assert!(c.is_busy());
+
+        c.reset_to_idle();
+        assert!(!c.is_busy());
+
+        // Can start again
+        assert!(c.maybe_start_recording().is_ok());
     }
 
     #[test]
-    fn cannot_start_recording_while_processing() {
-        let state = OperationState::Processing;
-        let (new_state, result) = state.maybe_start_recording();
+    fn complete_is_idempotent() {
+        let c = OperationController::new();
 
-        assert_eq!(new_state, OperationState::Processing);
-        assert_eq!(
-            result,
-            TransitionResult::Blocked {
-                current_state: OperationState::Processing
-            }
-        );
+        // Complete from Idle is no-op
+        c.complete();
+        assert_eq!(c.current_state(), OperationState::Idle);
+
+        // Multiple completes are fine
+        c.maybe_start_recording().unwrap();
+        c.stop_recording().unwrap();
+        c.complete();
+        c.complete();
+        assert_eq!(c.current_state(), OperationState::Idle);
     }
 
     #[test]
-    fn can_stop_recording_to_processing() {
-        let state = OperationState::Recording;
-        let (new_state, result) = state.maybe_stop_recording();
-
-        assert_eq!(new_state, OperationState::Processing);
-        assert_eq!(result, TransitionResult::Ok);
-    }
-
-    #[test]
-    fn cannot_stop_from_idle() {
-        let state = OperationState::Idle;
-        let (new_state, result) = state.maybe_stop_recording();
-
-        assert_eq!(new_state, OperationState::Idle);
-        assert_eq!(
-            result,
-            TransitionResult::Blocked {
-                current_state: OperationState::Idle
-            }
-        );
-    }
-
-    #[test]
-    fn can_complete_processing() {
-        let state = OperationState::Processing;
-        let (new_state, result) = state.complete_processing();
-
-        assert_eq!(new_state, OperationState::Idle);
-        assert_eq!(result, TransitionResult::Ok);
-    }
-
-    #[test]
-    fn cannot_complete_from_recording() {
-        let state = OperationState::Recording;
-        let (new_state, result) = state.complete_processing();
-
-        assert_eq!(new_state, OperationState::Recording);
-        assert_eq!(
-            result,
-            TransitionResult::Blocked {
-                current_state: OperationState::Recording
-            }
-        );
-    }
-
-    #[test]
-    fn full_lifecycle() {
-        let mut state = OperationState::default();
-
-        // Start recording
-        let (new_state, result) = state.maybe_start_recording();
-        assert_eq!(result, TransitionResult::Ok);
-        state = new_state;
-
-        // Try to start another recording (should fail)
-        let (_, result) = state.maybe_start_recording();
-        assert!(matches!(result, TransitionResult::Blocked { .. }));
-
-        // Stop recording -> processing
-        let (new_state, result) = state.maybe_stop_recording();
-        assert_eq!(result, TransitionResult::Ok);
-        state = new_state;
-
-        // Try to start recording while processing (should fail)
-        let (_, result) = state.maybe_start_recording();
-        assert!(matches!(result, TransitionResult::Blocked { .. }));
-
-        // Complete processing
-        let (new_state, result) = state.complete_processing();
-        assert_eq!(result, TransitionResult::Ok);
-        state = new_state;
-
-        // Now we can start again
-        assert_eq!(state, OperationState::Idle);
-    }
-
-    #[test]
-    fn rapid_start_attempts_blocked() {
-        // Simulates user rapidly pressing hotkey
-        let mut state = OperationState::Idle;
-
-        // First attempt succeeds
-        let (new_state, result) = state.maybe_start_recording();
-        assert_eq!(result, TransitionResult::Ok);
-        state = new_state;
-
-        // Rapid subsequent attempts all blocked
-        for _ in 0..10 {
-            let (new_state, result) = state.maybe_start_recording();
-            assert!(matches!(result, TransitionResult::Blocked { .. }));
-            assert_eq!(new_state, OperationState::Recording);
-        }
-    }
-
-    // --- OperationController tests ---
-
-    #[test]
-    fn controller_starts_idle() {
-        let controller = super::OperationController::new();
-        assert_eq!(controller.current_state(), OperationState::Idle);
-    }
-
-    #[test]
-    fn controller_full_lifecycle() {
-        let controller = super::OperationController::new();
-
-        // Start recording
-        assert!(controller.maybe_start_recording());
-        assert_eq!(controller.current_state(), OperationState::Recording);
-
-        // Can't start again
-        assert!(!controller.maybe_start_recording());
-
-        // Stop recording -> processing (always succeeds, no return value)
-        controller.stop_recording();
-        assert_eq!(controller.current_state(), OperationState::Processing);
-
-        // Can't start while processing
-        assert!(!controller.maybe_start_recording());
-
-        // Complete (always succeeds, no return value)
-        controller.complete_processing();
-        assert_eq!(controller.current_state(), OperationState::Idle);
-
-        // Now can start again
-        assert!(controller.maybe_start_recording());
-    }
-
-    #[test]
-    fn controller_thread_safe() {
+    fn thread_safety() {
         use std::sync::Arc;
         use std::thread;
 
-        let controller = Arc::new(super::OperationController::new());
+        let c = Arc::new(OperationController::new());
 
-        // First thread starts recording
-        let c1 = Arc::clone(&controller);
-        let h1 = thread::spawn(move || c1.maybe_start_recording());
-
-        // Wait for first to complete
-        let first_succeeded = h1.join().unwrap();
-        assert!(first_succeeded);
-
-        // Subsequent attempts from multiple threads should all fail
+        // 10 threads race to start
         let handles: Vec<_> = (0..10)
             .map(|_| {
-                let c = Arc::clone(&controller);
-                thread::spawn(move || c.maybe_start_recording())
+                let c = Arc::clone(&c);
+                thread::spawn(move || c.maybe_start_recording().is_ok())
             })
             .collect();
 
-        for h in handles {
-            assert!(!h.join().unwrap());
-        }
+        let successes: Vec<bool> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // Exactly one wins
+        assert_eq!(successes.iter().filter(|&&s| s).count(), 1);
     }
 }
