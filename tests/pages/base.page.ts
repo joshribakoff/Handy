@@ -41,7 +41,10 @@ export class BasePage {
   /**
    * Get element by role.
    */
-  getByRole(role: Parameters<Page["getByRole"]>[0], options?: Parameters<Page["getByRole"]>[1]): Locator {
+  getByRole(
+    role: Parameters<Page["getByRole"]>[0],
+    options?: Parameters<Page["getByRole"]>[1],
+  ): Locator {
     return this.page.getByRole(role, options);
   }
 

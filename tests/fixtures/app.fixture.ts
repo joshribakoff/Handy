@@ -17,9 +17,11 @@ export const test = base.extend<{
     await page.addInitScript(getTauriMockScript(tauriConfig));
     await page.goto("/");
 
-    // Wait for app to be ready (sidebar should be visible)
+    // Wait for app to be ready (General section should be visible)
     const sidebar = new SidebarPage(page);
-    await sidebar.container.waitFor({ state: "visible", timeout: 10000 });
+    await page
+      .getByRole("button", { name: "General" })
+      .waitFor({ state: "visible", timeout: 10000 });
 
     await use(sidebar);
   },

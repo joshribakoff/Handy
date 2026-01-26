@@ -47,25 +47,24 @@ export const CONDITIONAL_SECTIONS: SidebarSection[] = [
  */
 export class SidebarPage extends BasePage {
   /**
-   * Get the sidebar container.
+   * Get the sidebar navigation element.
    */
   get container(): Locator {
-    // Sidebar is the first child div with border-r class
-    return this.page.locator("div.border-r").first();
+    return this.page.getByRole("navigation");
   }
 
   /**
    * Get the logo element.
    */
   get logo(): Locator {
-    return this.container.locator("svg").first();
+    return this.page.getByRole("img", { name: /logo/i });
   }
 
   /**
    * Get a section item by its label text.
    */
   getSectionByLabel(label: string): Locator {
-    return this.container.locator("div.cursor-pointer").filter({ hasText: label });
+    return this.page.getByRole("button", { name: label });
   }
 
   /**
@@ -76,13 +75,6 @@ export class SidebarPage extends BasePage {
   }
 
   /**
-   * Get all visible section items.
-   */
-  get allSections(): Locator {
-    return this.container.locator("div.cursor-pointer");
-  }
-
-  /**
    * Click a section to navigate.
    */
   async clickSection(section: SidebarSection): Promise<void> {
@@ -90,31 +82,26 @@ export class SidebarPage extends BasePage {
   }
 
   /**
-   * Check if a section is currently active (highlighted).
+   * Check if a section is currently active by checking aria-pressed.
    */
   async isSectionActive(section: SidebarSection): Promise<boolean> {
     const sectionEl = this.getSection(section);
-    const classes = await sectionEl.getAttribute("class");
-    // Active sections have bg-logo-primary/80 class
-    return classes?.includes("bg-logo-primary") ?? false;
+    const pressed = await sectionEl.getAttribute("aria-pressed");
+    return pressed === "true";
   }
 
   /**
    * Get the currently active section.
    */
   async getActiveSection(): Promise<SidebarSection | null> {
-    for (const section of ALWAYS_VISIBLE_SECTIONS) {
-      if (await this.isSectionActive(section)) {
-        return section;
-      }
-    }
-    // Also check conditional sections
-    for (const section of CONDITIONAL_SECTIONS) {
+    for (const section of [
+      ...ALWAYS_VISIBLE_SECTIONS,
+      ...CONDITIONAL_SECTIONS,
+    ]) {
       const sectionEl = this.getSection(section);
-      if (await sectionEl.isVisible().catch(() => false)) {
-        if (await this.isSectionActive(section)) {
-          return section;
-        }
+      const isVisible = await sectionEl.isVisible().catch(() => false);
+      if (isVisible && (await this.isSectionActive(section))) {
+        return section;
       }
     }
     return null;
@@ -124,19 +111,33 @@ export class SidebarPage extends BasePage {
    * Get count of visible sections.
    */
   async getVisibleSectionCount(): Promise<number> {
-    return this.allSections.count();
+    let count = 0;
+    for (const section of [
+      ...ALWAYS_VISIBLE_SECTIONS,
+      ...CONDITIONAL_SECTIONS,
+    ]) {
+      const isVisible = await this.getSection(section)
+        .isVisible()
+        .catch(() => false);
+      if (isVisible) count++;
+    }
+    return count;
   }
 
   /**
    * Get all visible section labels.
    */
   async getVisibleSectionLabels(): Promise<string[]> {
-    const sections = this.allSections;
-    const count = await sections.count();
     const labels: string[] = [];
-    for (let i = 0; i < count; i++) {
-      const text = await sections.nth(i).locator("p").textContent();
-      if (text) labels.push(text);
+    for (const section of [
+      ...ALWAYS_VISIBLE_SECTIONS,
+      ...CONDITIONAL_SECTIONS,
+    ]) {
+      const sectionEl = this.getSection(section);
+      const isVisible = await sectionEl.isVisible().catch(() => false);
+      if (isVisible) {
+        labels.push(SECTION_LABELS[section]);
+      }
     }
     return labels;
   }
