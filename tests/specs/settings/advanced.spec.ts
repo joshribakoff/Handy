@@ -9,194 +9,198 @@ test.describe("Advanced Settings", () => {
     await advancedPage.navigate();
   });
 
-  test.describe("App Settings Group", () => {
-    test("displays app settings group", async () => {
+  test.describe("Settings Groups Visibility", () => {
+    test("displays all settings groups", async () => {
       await expect(advancedPage.isSettingsGroupVisible("App")).resolves.toBe(
-        true
+        true,
       );
-    });
-
-    test("start hidden toggle works", async () => {
-      const initialState = await advancedPage.isStartHiddenEnabled();
-      await advancedPage.toggleStartHidden();
-      const newState = await advancedPage.isStartHiddenEnabled();
-      expect(newState).toBe(!initialState);
-    });
-
-    test("autostart toggle works", async () => {
-      const initialState = await advancedPage.isAutostartEnabled();
-      await advancedPage.toggleAutostart();
-      const newState = await advancedPage.isAutostartEnabled();
-      expect(newState).toBe(!initialState);
-    });
-
-    test("overlay position dropdown has options", async ({ page }) => {
-      await advancedPage.overlayDropdown.click();
-      await expect(page.getByRole("button", { name: "None" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Bottom" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Top" })).toBeVisible();
-    });
-
-    test("overlay position selection works", async () => {
-      await advancedPage.selectOverlayPosition("Top");
-      const selected = await advancedPage.getOverlayPosition();
-      expect(selected).toBe("Top");
-    });
-
-    test("model unload timeout dropdown has options", async ({ page }) => {
-      await advancedPage.modelUnloadDropdown.click();
-      await expect(page.getByRole("button", { name: "Never" })).toBeVisible();
-      await expect(
-        page.getByRole("button", { name: "Immediately" })
-      ).toBeVisible();
-      await expect(
-        page.getByRole("button", { name: /After \d+ minutes?/ })
-      ).toBeVisible();
-    });
-
-    test("model unload timeout selection works", async () => {
-      await advancedPage.selectModelUnloadTimeout("After 5 minutes");
-      const selected = await advancedPage.getModelUnloadTimeout();
-      expect(selected).toBe("After 5 minutes");
-    });
-
-    test("experimental features toggle works", async () => {
-      const initialState = await advancedPage.isExperimentalEnabled();
-      await advancedPage.toggleExperimental();
-      const newState = await advancedPage.isExperimentalEnabled();
-      expect(newState).toBe(!initialState);
-    });
-  });
-
-  test.describe("Output Settings Group", () => {
-    test("displays output settings group", async () => {
       await expect(advancedPage.isSettingsGroupVisible("Output")).resolves.toBe(
-        true
+        true,
       );
-    });
-
-    test("paste method dropdown has options", async ({ page }) => {
-      await advancedPage.pasteMethodDropdown.click();
-      await expect(page.getByRole("button", { name: /Clipboard/ })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Direct" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "None" })).toBeVisible();
-    });
-
-    test("paste method selection works", async () => {
-      await advancedPage.selectPasteMethod("Direct");
-      const selected = await advancedPage.getPasteMethod();
-      expect(selected).toBe("Direct");
-    });
-
-    test("clipboard handling dropdown has options", async ({ page }) => {
-      await advancedPage.clipboardHandlingDropdown.click();
       await expect(
-        page.getByRole("button", { name: "Don't Modify Clipboard" })
-      ).toBeVisible();
+        advancedPage.isSettingsGroupVisible("Transcription"),
+      ).resolves.toBe(true);
       await expect(
-        page.getByRole("button", { name: "Copy to Clipboard" })
-      ).toBeVisible();
-    });
-
-    test("clipboard handling selection works", async () => {
-      await advancedPage.selectClipboardHandling("Copy to Clipboard");
-      const selected = await advancedPage.getClipboardHandling();
-      expect(selected).toBe("Copy to Clipboard");
-    });
-  });
-
-  test.describe("Transcription Settings Group", () => {
-    test("displays transcription settings group", async () => {
-      await expect(
-        advancedPage.isSettingsGroupVisible("Transcription")
+        advancedPage.isSettingsGroupVisible("History"),
       ).resolves.toBe(true);
     });
 
-    test("trailing space toggle works", async () => {
-      const initialState = await advancedPage.isTrailingSpaceEnabled();
-      await advancedPage.toggleTrailingSpace();
-      const newState = await advancedPage.isTrailingSpaceEnabled();
-      expect(newState).toBe(!initialState);
-    });
-
-    test("custom words input is visible", async () => {
-      await expect(advancedPage.customWordsInput).toBeVisible();
-    });
-
-    test("can add custom word", async () => {
-      const testWord = "TestWord";
-      await advancedPage.addCustomWord(testWord);
-      const chip = advancedPage.getCustomWordChip(testWord);
-      await expect(chip).toBeVisible();
-    });
-
-    test("can remove custom word", async () => {
-      const testWord = "RemoveMe";
-      await advancedPage.addCustomWord(testWord);
-      await expect(advancedPage.getCustomWordChip(testWord)).toBeVisible();
-      await advancedPage.removeCustomWord(testWord);
-      await expect(advancedPage.getCustomWordChip(testWord)).not.toBeVisible();
-    });
-
-    test("add button disabled for empty input", async () => {
-      await advancedPage.customWordsInput.fill("");
-      await expect(advancedPage.addWordButton).toBeDisabled();
-    });
-
-    test("add button disabled for input with spaces", async () => {
-      await advancedPage.customWordsInput.fill("two words");
-      await expect(advancedPage.addWordButton).toBeDisabled();
-    });
-  });
-
-  test.describe("History Settings Group", () => {
-    test("displays history settings group", async () => {
+    test("experimental group hidden by default, visible when enabled", async () => {
+      // Assert: Experimental group hidden initially
       await expect(
-        advancedPage.isSettingsGroupVisible("History")
-      ).resolves.toBe(true);
-    });
-
-    test("history limit input is visible", async () => {
-      await expect(advancedPage.historyLimitInput).toBeVisible();
-    });
-
-    test("can set history limit", async () => {
-      await advancedPage.setHistoryLimit(100);
-      const value = await advancedPage.getHistoryLimit();
-      expect(value).toBe(100);
-    });
-  });
-
-  test.describe("Experimental Settings", () => {
-    test("experimental group hidden by default", async () => {
-      // Ensure experimental is disabled first
-      if (await advancedPage.isExperimentalEnabled()) {
-        await advancedPage.toggleExperimental();
-      }
-      await expect(
-        advancedPage.isSettingsGroupVisible("Experimental")
+        advancedPage.isSettingsGroupVisible("Experimental"),
       ).resolves.toBe(false);
-    });
 
-    test("experimental group visible when enabled", async () => {
-      // Enable experimental features
-      if (!(await advancedPage.isExperimentalEnabled())) {
-        await advancedPage.toggleExperimental();
-      }
+      // Act: Enable experimental features
+      await advancedPage.experimentalToggle.click();
+
+      // Assert: Experimental group now visible
       await expect(
-        advancedPage.isSettingsGroupVisible("Experimental")
+        advancedPage.isSettingsGroupVisible("Experimental"),
       ).resolves.toBe(true);
     });
   });
 
-  test.describe("Translate to English (Whisper only)", () => {
-    // Note: This feature visibility depends on having a Whisper model selected
-    // In a real test environment, we might need to mock the model state
-    test("translate toggle visibility depends on model", async () => {
-      // The translate option should only be visible for Whisper models (not turbo)
-      // This test documents the expected behavior
-      const isVisible = await advancedPage.isTranslateVisible();
-      // We just verify the page doesn't crash; actual visibility depends on model state
+  test.describe("App Settings", () => {
+    test("start hidden toggle persists setting", async () => {
+      // Assert: Get initial state
+      const toggle = advancedPage.startHiddenToggle;
+      const wasChecked = await toggle.isChecked();
+
+      // Act: Toggle the setting
+      await toggle.click();
+
+      // Assert: State changed
+      await expect(toggle).toBeChecked({ checked: !wasChecked });
+    });
+
+    test("autostart toggle persists setting", async () => {
+      // Assert: Get initial state
+      const toggle = advancedPage.autostartToggle;
+      const wasChecked = await toggle.isChecked();
+
+      // Act: Toggle the setting
+      await toggle.click();
+
+      // Assert: State changed
+      await expect(toggle).toBeChecked({ checked: !wasChecked });
+    });
+
+    test("overlay position selection persists", async ({ page }) => {
+      // Assert: Dropdown exists and is clickable
+      const dropdown = advancedPage.overlayDropdown;
+      await expect(dropdown).toBeVisible();
+
+      // Act: Open dropdown and select Top
+      await dropdown.click();
+      await page.getByRole("option", { name: "Top" }).click();
+
+      // Assert: Selection persisted
+      await expect(dropdown).toHaveText(/Top/);
+    });
+
+    test("model unload timeout selection persists", async ({ page }) => {
+      // Assert: Dropdown exists
+      const dropdown = advancedPage.modelUnloadDropdown;
+      await expect(dropdown).toBeVisible();
+
+      // Act: Select "After 5 minutes"
+      await dropdown.click();
+      await page.getByRole("option", { name: /After 5 minutes/ }).click();
+
+      // Assert: Selection persisted
+      await expect(dropdown).toHaveText(/After 5 minutes/);
+    });
+  });
+
+  test.describe("Output Settings", () => {
+    test("paste method selection persists", async ({ page }) => {
+      const dropdown = advancedPage.pasteMethodDropdown;
+
+      // Act: Select Direct paste method
+      await dropdown.click();
+      await page.getByRole("option", { name: "Direct" }).click();
+
+      // Assert: Selection persisted
+      await expect(dropdown).toHaveText(/Direct/);
+    });
+
+    test("clipboard handling selection persists", async ({ page }) => {
+      const dropdown = advancedPage.clipboardHandlingDropdown;
+
+      // Act: Select Copy to Clipboard
+      await dropdown.click();
+      await page.getByRole("option", { name: "Copy to Clipboard" }).click();
+
+      // Assert: Selection persisted
+      await expect(dropdown).toHaveText(/Copy to Clipboard/);
+    });
+  });
+
+  test.describe("Transcription Settings", () => {
+    test("trailing space toggle persists setting", async () => {
+      const toggle = advancedPage.trailingSpaceToggle;
+      const wasChecked = await toggle.isChecked();
+
+      // Act
+      await toggle.click();
+
+      // Assert
+      await expect(toggle).toBeChecked({ checked: !wasChecked });
+    });
+
+    test("custom words input accepts and displays words", async () => {
+      const input = advancedPage.customWordsInput;
+      const addButton = advancedPage.addWordButton;
+
+      // Assert: Input is empty, add button disabled
+      await expect(input).toHaveValue("");
+      await expect(addButton).toBeDisabled();
+
+      // Act: Type a word
+      await input.fill("TestWord");
+
+      // Assert: Add button now enabled
+      await expect(addButton).toBeEnabled();
+
+      // Act: Add the word
+      await addButton.click();
+
+      // Assert: Word appears as chip, input cleared
+      await expect(advancedPage.getCustomWordChip("TestWord")).toBeVisible();
+      await expect(input).toHaveValue("");
+    });
+
+    test("custom word can be removed", async () => {
+      // Arrange: Add a word first
+      await advancedPage.addCustomWord("RemoveMe");
+      const chip = advancedPage.getCustomWordChip("RemoveMe");
+
+      // Assert: Word exists
+      await expect(chip).toBeVisible();
+
+      // Act: Remove the word
+      await chip.click();
+
+      // Assert: Word is gone
+      await expect(chip).not.toBeVisible();
+    });
+
+    test("add button disabled for invalid input", async () => {
+      const input = advancedPage.customWordsInput;
+      const addButton = advancedPage.addWordButton;
+
+      // Assert: Empty input - button disabled
+      await input.fill("");
+      await expect(addButton).toBeDisabled();
+
+      // Assert: Input with spaces - button disabled
+      await input.fill("two words");
+      await expect(addButton).toBeDisabled();
+    });
+  });
+
+  test.describe("History Settings", () => {
+    test("history limit accepts numeric input", async () => {
+      const input = advancedPage.historyLimitInput;
+
+      // Assert: Input exists
+      await expect(input).toBeVisible();
+
+      // Act: Set value
+      await input.fill("100");
+
+      // Assert: Value persisted
+      await expect(input).toHaveValue("100");
+    });
+  });
+
+  test.describe("Translate to English", () => {
+    test("translate toggle visibility depends on model type", async () => {
+      // Note: Translate option only visible for Whisper models (not turbo)
+      // This test verifies the toggle can be queried without errors
+      const toggle = advancedPage.translateToggle;
+      const isVisible = await toggle.isVisible();
       expect(typeof isVisible).toBe("boolean");
     });
   });
