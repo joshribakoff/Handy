@@ -213,4 +213,189 @@ mod tests {
         // Exactly one wins
         assert_eq!(successes.iter().filter(|&&s| s).count(), 1);
     }
+
+    // --- Integration-style tests ---
+    // These simulate the flow in actions.rs without needing Tauri
+
+    /// Simulates: user triggers hotkey, recording starts successfully
+    #[test]
+    fn integration_successful_start() {
+        let c = OperationController::new();
+
+        // Simulate actions.rs start() flow
+        match c.maybe_start_recording() {
+            Ok(()) => {
+                // Side effect: start_recording() succeeds
+                let recording_started = true; // mock success
+                if !recording_started {
+                    c.reset_to_idle();
+                }
+            }
+            Err(_) => panic!("Should not be blocked"),
+        }
+
+        assert_eq!(c.current_state(), OperationState::Recording);
+    }
+
+    /// Simulates: user triggers hotkey, but microphone fails to open
+    #[test]
+    fn integration_start_fails_releases_lock() {
+        let c = OperationController::new();
+
+        // Simulate actions.rs start() flow with failure
+        match c.maybe_start_recording() {
+            Ok(()) => {
+                // Side effect: start_recording() fails
+                let recording_started = false; // mock failure
+                if !recording_started {
+                    c.reset_to_idle();
+                }
+            }
+            Err(_) => panic!("Should not be blocked"),
+        }
+
+        // Lock should be released
+        assert_eq!(c.current_state(), OperationState::Idle);
+        assert!(!c.is_busy());
+
+        // Can try again
+        assert!(c.maybe_start_recording().is_ok());
+    }
+
+    /// Simulates: user triggers hotkey while already recording
+    #[test]
+    fn integration_blocked_during_recording() {
+        let c = OperationController::new();
+
+        // First operation starts
+        c.maybe_start_recording().unwrap();
+
+        // Second attempt blocked
+        let result = c.maybe_start_recording();
+        assert!(matches!(result, Err(OperationState::Recording)));
+    }
+
+    /// Simulates: user triggers hotkey while transcription in progress
+    #[test]
+    fn integration_blocked_during_processing() {
+        let c = OperationController::new();
+
+        // Operation in processing phase
+        c.maybe_start_recording().unwrap();
+        c.stop_recording().unwrap();
+
+        // New start attempt blocked
+        let result = c.maybe_start_recording();
+        assert!(matches!(result, Err(OperationState::Processing)));
+    }
+
+    /// Simulates: full successful operation from start to paste
+    #[test]
+    fn integration_full_success() {
+        let c = OperationController::new();
+
+        // Start recording
+        c.maybe_start_recording().unwrap();
+        // ... user speaks ...
+
+        // Stop recording, begin transcription
+        c.stop_recording().unwrap();
+        // ... transcription happens async ...
+
+        // Transcription complete
+        c.complete();
+
+        assert_eq!(c.current_state(), OperationState::Idle);
+
+        // Can start new operation
+        assert!(c.maybe_start_recording().is_ok());
+    }
+
+    /// Simulates: user cancels during recording
+    #[test]
+    fn integration_cancel_during_recording() {
+        let c = OperationController::new();
+
+        c.maybe_start_recording().unwrap();
+        assert_eq!(c.current_state(), OperationState::Recording);
+
+        // User hits cancel
+        c.reset_to_idle();
+
+        assert_eq!(c.current_state(), OperationState::Idle);
+        assert!(c.maybe_start_recording().is_ok());
+    }
+
+    /// Simulates: user cancels during transcription
+    #[test]
+    fn integration_cancel_during_processing() {
+        let c = OperationController::new();
+
+        c.maybe_start_recording().unwrap();
+        c.stop_recording().unwrap();
+        assert_eq!(c.current_state(), OperationState::Processing);
+
+        // User hits cancel (can't stop ML inference, but releases lock)
+        c.reset_to_idle();
+
+        assert_eq!(c.current_state(), OperationState::Idle);
+        assert!(c.maybe_start_recording().is_ok());
+    }
+
+    /// Simulates: transcription fails, lock should still be released
+    #[test]
+    fn integration_transcription_error_releases_lock() {
+        use std::sync::Arc;
+
+        let c = Arc::new(OperationController::new());
+
+        c.maybe_start_recording().unwrap();
+        c.stop_recording().unwrap();
+
+        // Simulate async task that errors
+        let c2 = Arc::clone(&c);
+        let handle = std::thread::spawn(move || {
+            // Transcription fails
+            let _transcription_result: Result<String, &str> = Err("model not loaded");
+
+            // But complete() is always called (via guard pattern)
+            c2.complete();
+        });
+
+        handle.join().unwrap();
+
+        // Lock released despite error
+        assert_eq!(c.current_state(), OperationState::Idle);
+    }
+
+    /// Simulates: rapid double-tap (the bug from #641)
+    #[test]
+    fn integration_rapid_double_tap() {
+        use std::sync::Arc;
+        use std::thread;
+        use std::time::Duration;
+
+        let c = Arc::new(OperationController::new());
+
+        // First tap starts
+        let c1 = Arc::clone(&c);
+        let h1 = thread::spawn(move || {
+            c1.maybe_start_recording().is_ok()
+        });
+
+        // Tiny delay
+        thread::sleep(Duration::from_micros(100));
+
+        // Second tap (should be blocked)
+        let c2 = Arc::clone(&c);
+        let h2 = thread::spawn(move || {
+            c2.maybe_start_recording().is_ok()
+        });
+
+        let first = h1.join().unwrap();
+        let second = h2.join().unwrap();
+
+        // Exactly one succeeds
+        assert!(first && !second || !first && second);
+    }
 }
