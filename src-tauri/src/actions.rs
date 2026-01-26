@@ -222,7 +222,7 @@ impl ShortcutAction for TranscribeAction {
         let op_controller = app.state::<Arc<OperationController>>();
 
         // Atomically try to transition Idle -> Recording
-        match op_controller.maybe_start_recording() {
+        match op_controller.begin() {
             Ok(()) => {
                 // State is now Recording - proceed with side effects
             }
@@ -306,7 +306,7 @@ impl ShortcutAction for TranscribeAction {
         let op_controller = app.state::<Arc<OperationController>>();
 
         // Atomically try to transition Recording -> Processing
-        match op_controller.stop_recording() {
+        match op_controller.advance() {
             Ok(()) => {
                 // State is now Processing - proceed with transcription
             }

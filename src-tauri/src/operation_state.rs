@@ -8,7 +8,7 @@
 //!
 //! ```ignore
 //! // Try to start an operation
-//! match controller.maybe_start_recording() {
+//! match controller.begin() {
 //!     Ok(()) => {
 //!         // Lock acquired, state is Recording
 //!         // Now perform side effects...
@@ -68,7 +68,7 @@ impl OperationController {
     ///
     /// On success, state becomes Recording. Caller should then perform
     /// side effects. If side effects fail, call `reset_to_idle()`.
-    pub fn maybe_start_recording(&self) -> Result<(), OperationState> {
+    pub fn begin(&self) -> Result<(), OperationState> {
         let mut state = self.state.lock().unwrap();
         match *state {
             OperationState::Idle => {
@@ -82,7 +82,7 @@ impl OperationController {
     /// Transition from Recording to Processing.
     ///
     /// Returns Err if not currently recording.
-    pub fn stop_recording(&self) -> Result<(), OperationState> {
+    pub fn advance(&self) -> Result<(), OperationState> {
         let mut state = self.state.lock().unwrap();
         match *state {
             OperationState::Recording => {
@@ -142,15 +142,15 @@ mod tests {
         let c = OperationController::new();
 
         // Start -> Recording
-        assert!(c.maybe_start_recording().is_ok());
+        assert!(c.begin().is_ok());
         assert_eq!(c.current_state(), OperationState::Recording);
         assert!(c.is_busy());
 
         // Can't start again while busy
-        assert!(c.maybe_start_recording().is_err());
+        assert!(c.begin().is_err());
 
         // Stop -> Processing
-        assert!(c.stop_recording().is_ok());
+        assert!(c.advance().is_ok());
         assert_eq!(c.current_state(), OperationState::Processing);
         assert!(c.is_busy());
 
@@ -160,21 +160,21 @@ mod tests {
         assert!(!c.is_busy());
 
         // Can start again
-        assert!(c.maybe_start_recording().is_ok());
+        assert!(c.begin().is_ok());
     }
 
     #[test]
     fn reset_releases_lock() {
         let c = OperationController::new();
 
-        c.maybe_start_recording().unwrap();
+        c.begin().unwrap();
         assert!(c.is_busy());
 
         c.reset_to_idle();
         assert!(!c.is_busy());
 
         // Can start again
-        assert!(c.maybe_start_recording().is_ok());
+        assert!(c.begin().is_ok());
     }
 
     #[test]
@@ -186,8 +186,8 @@ mod tests {
         assert_eq!(c.current_state(), OperationState::Idle);
 
         // Multiple completes are fine
-        c.maybe_start_recording().unwrap();
-        c.stop_recording().unwrap();
+        c.begin().unwrap();
+        c.advance().unwrap();
         c.complete();
         c.complete();
         assert_eq!(c.current_state(), OperationState::Idle);
@@ -204,7 +204,7 @@ mod tests {
         let handles: Vec<_> = (0..10)
             .map(|_| {
                 let c = Arc::clone(&c);
-                thread::spawn(move || c.maybe_start_recording().is_ok())
+                thread::spawn(move || c.begin().is_ok())
             })
             .collect();
 
@@ -223,7 +223,7 @@ mod tests {
         let c = OperationController::new();
 
         // Simulate actions.rs start() flow
-        match c.maybe_start_recording() {
+        match c.begin() {
             Ok(()) => {
                 // Side effect: start_recording() succeeds
                 let recording_started = true; // mock success
@@ -243,7 +243,7 @@ mod tests {
         let c = OperationController::new();
 
         // Simulate actions.rs start() flow with failure
-        match c.maybe_start_recording() {
+        match c.begin() {
             Ok(()) => {
                 // Side effect: start_recording() fails
                 let recording_started = false; // mock failure
@@ -259,7 +259,7 @@ mod tests {
         assert!(!c.is_busy());
 
         // Can try again
-        assert!(c.maybe_start_recording().is_ok());
+        assert!(c.begin().is_ok());
     }
 
     /// Simulates: user triggers hotkey while already recording
@@ -268,10 +268,10 @@ mod tests {
         let c = OperationController::new();
 
         // First operation starts
-        c.maybe_start_recording().unwrap();
+        c.begin().unwrap();
 
         // Second attempt blocked
-        let result = c.maybe_start_recording();
+        let result = c.begin();
         assert!(matches!(result, Err(OperationState::Recording)));
     }
 
@@ -281,11 +281,11 @@ mod tests {
         let c = OperationController::new();
 
         // Operation in processing phase
-        c.maybe_start_recording().unwrap();
-        c.stop_recording().unwrap();
+        c.begin().unwrap();
+        c.advance().unwrap();
 
         // New start attempt blocked
-        let result = c.maybe_start_recording();
+        let result = c.begin();
         assert!(matches!(result, Err(OperationState::Processing)));
     }
 
@@ -295,11 +295,11 @@ mod tests {
         let c = OperationController::new();
 
         // Start recording
-        c.maybe_start_recording().unwrap();
+        c.begin().unwrap();
         // ... user speaks ...
 
         // Stop recording, begin transcription
-        c.stop_recording().unwrap();
+        c.advance().unwrap();
         // ... transcription happens async ...
 
         // Transcription complete
@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(c.current_state(), OperationState::Idle);
 
         // Can start new operation
-        assert!(c.maybe_start_recording().is_ok());
+        assert!(c.begin().is_ok());
     }
 
     /// Simulates: user cancels during recording
@@ -316,14 +316,14 @@ mod tests {
     fn integration_cancel_during_recording() {
         let c = OperationController::new();
 
-        c.maybe_start_recording().unwrap();
+        c.begin().unwrap();
         assert_eq!(c.current_state(), OperationState::Recording);
 
         // User hits cancel
         c.reset_to_idle();
 
         assert_eq!(c.current_state(), OperationState::Idle);
-        assert!(c.maybe_start_recording().is_ok());
+        assert!(c.begin().is_ok());
     }
 
     /// Simulates: user cancels during transcription
@@ -331,15 +331,15 @@ mod tests {
     fn integration_cancel_during_processing() {
         let c = OperationController::new();
 
-        c.maybe_start_recording().unwrap();
-        c.stop_recording().unwrap();
+        c.begin().unwrap();
+        c.advance().unwrap();
         assert_eq!(c.current_state(), OperationState::Processing);
 
         // User hits cancel (can't stop ML inference, but releases lock)
         c.reset_to_idle();
 
         assert_eq!(c.current_state(), OperationState::Idle);
-        assert!(c.maybe_start_recording().is_ok());
+        assert!(c.begin().is_ok());
     }
 
     /// Simulates: transcription fails, lock should still be released
@@ -349,8 +349,8 @@ mod tests {
 
         let c = Arc::new(OperationController::new());
 
-        c.maybe_start_recording().unwrap();
-        c.stop_recording().unwrap();
+        c.begin().unwrap();
+        c.advance().unwrap();
 
         // Simulate async task that errors
         let c2 = Arc::clone(&c);
@@ -380,7 +380,7 @@ mod tests {
         // First tap starts
         let c1 = Arc::clone(&c);
         let h1 = thread::spawn(move || {
-            c1.maybe_start_recording().is_ok()
+            c1.begin().is_ok()
         });
 
         // Tiny delay
@@ -389,7 +389,7 @@ mod tests {
         // Second tap (should be blocked)
         let c2 = Arc::clone(&c);
         let h2 = thread::spawn(move || {
-            c2.maybe_start_recording().is_ok()
+            c2.begin().is_ok()
         });
 
         let first = h1.join().unwrap();
