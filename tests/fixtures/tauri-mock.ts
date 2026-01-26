@@ -10,12 +10,18 @@ export interface TauriMockConfig {
   debugMode?: boolean;
   /** Post-processing enabled */
   postProcessEnabled?: boolean;
+  /** Accessibility permission granted (macOS) - default true */
+  accessibilityGranted?: boolean;
+  /** Microphone permission granted (macOS) - default true */
+  microphoneGranted?: boolean;
 }
 
 const DEFAULT_CONFIG: TauriMockConfig = {
   hasModels: true,
   debugMode: false,
   postProcessEnabled: false,
+  accessibilityGranted: true,
+  microphoneGranted: true,
 };
 
 /**
@@ -110,10 +116,16 @@ export function getMockResponses(config: TauriMockConfig = {}) {
     get_log_dir_path: "/mock/log/dir",
 
     // Audio commands
-    get_available_microphones: [],
-    get_selected_microphone: null,
-    get_available_output_devices: [],
-    get_selected_output_device: null,
+    get_available_microphones: [
+      { id: "default", name: "Default Microphone" },
+      { id: "builtin", name: "MacBook Pro Microphone" },
+    ],
+    get_selected_microphone: { id: "default", name: "Default Microphone" },
+    get_available_output_devices: [
+      { id: "default", name: "Default Output" },
+      { id: "builtin", name: "MacBook Pro Speakers" },
+    ],
+    get_selected_output_device: { id: "default", name: "Default Output" },
     get_microphone_mode: false,
     is_recording: false,
     get_clamshell_microphone: null,
@@ -131,12 +143,16 @@ export function getMockResponses(config: TauriMockConfig = {}) {
     check_custom_sounds: [],
 
     // Permission commands (for onboarding)
-    check_accessibility_permission: true,
-    check_microphone_permission: true,
+    check_accessibility_permission: cfg.accessibilityGranted,
+    check_microphone_permission: cfg.microphoneGranted,
 
     // Plugin commands
-    "plugin:macos-permissions|check_accessibility_permission": true,
-    "plugin:macos-permissions|check_microphone_permission": true,
+    "plugin:macos-permissions|check_accessibility_permission":
+      cfg.accessibilityGranted,
+    "plugin:macos-permissions|check_microphone_permission":
+      cfg.microphoneGranted,
+    "plugin:macos-permissions|request_accessibility_permission": null,
+    "plugin:macos-permissions|request_microphone_permission": null,
     "plugin:app|version": "0.1.0-test",
     "plugin:event|listen": 1, // Return listener ID
   };
