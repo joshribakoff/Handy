@@ -13,31 +13,32 @@ export abstract class BasePage {
 
   /** Click a sidebar navigation item by its text label */
   async navigateTo(section: string): Promise<void> {
-    await this.page.locator(`text=${section}`).click();
+    await this.page.getByRole("navigation").getByText(section).click();
   }
 
-  /** Get the active sidebar section */
+  /** Get the sidebar navigation item */
   getSidebarItem(label: string): Locator {
-    return this.page.locator(".flex.flex-col.w-full").getByText(label);
+    return this.page.getByRole("navigation").getByText(label);
   }
 
-  /** Check if a settings group with the given title exists */
-  getSettingsGroup(title: string): Locator {
-    return this.page.locator(`text=${title}`).first();
+  /** Get a heading by text */
+  getHeading(text: string): Locator {
+    return this.page.getByRole("heading", { name: text });
   }
 
-  /** Get a setting container by its title */
-  getSettingByTitle(title: string): Locator {
-    return this.page.locator(`h3:has-text("${title}")`).first();
+  /** Get a button by its accessible name */
+  getButton(name: string): Locator {
+    return this.page.getByRole("button", { name });
   }
 
-  /** Get a dropdown button */
-  getDropdown(): Locator {
-    return this.page.locator("button").filter({ has: this.page.locator("svg") });
+  /** Get a link by its accessible name */
+  getLink(name: string): Locator {
+    return this.page.getByRole("link", { name });
   }
 
-  /** Get a button by its text */
-  getButton(text: string): Locator {
-    return this.page.getByRole("button", { name: text });
+  /** Enable debug mode via keyboard shortcut */
+  async enableDebugMode(): Promise<void> {
+    const modifier = process.platform === "darwin" ? "Meta" : "Control";
+    await this.page.keyboard.press(`${modifier}+Shift+D`);
   }
 }
