@@ -1,6 +1,6 @@
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::transcription::TranscriptionManager;
-use crate::operation_state::{OperationController, OperationPhase};
+use crate::global_controller::{GlobalPhase, GlobalController};
 use crate::shortcut;
 use crate::ManagedToggleState;
 use log::{debug, info, warn};
@@ -16,17 +16,17 @@ pub use crate::tray::*;
 /// Centralized cancellation function that can be called from anywhere in the app.
 /// Handles cancelling both recording and transcription operations and updates UI state.
 pub fn cancel_current_operation(app: &AppHandle) {
-    let op_controller = app.state::<Arc<OperationController>>();
+    let op_controller = app.state::<Arc<GlobalController>>();
     let phase = op_controller.current_phase();
 
     info!("Cancelling operation (phase: {:?})...", phase);
 
     match phase {
-        OperationPhase::Idle => {
+        GlobalPhase::Idle => {
             debug!("Cancel called but already idle - nothing to do");
             return;
         }
-        OperationPhase::Recording => {
+        GlobalPhase::Recording => {
             // Cancel recording: discard audio samples
             let audio_manager = app.state::<Arc<AudioRecordingManager>>();
             audio_manager.cancel_recording();
@@ -35,7 +35,7 @@ pub fn cancel_current_operation(app: &AppHandle) {
             let tm = app.state::<Arc<TranscriptionManager>>();
             tm.maybe_unload_immediately("cancellation");
         }
-        OperationPhase::Processing => {
+        GlobalPhase::Processing => {
             // Can't stop transcription mid-inference, but we can reset state
             debug!("Cancelling during processing - async task may still complete");
         }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 use crate::actions::ACTION_MAP;
-use crate::operation_state::OperationController;
+use crate::global_controller::GlobalController;
 use crate::settings::get_settings;
 use crate::ManagedToggleState;
 
@@ -41,10 +41,10 @@ pub fn handle_shortcut_event(
         return;
     };
 
-    // Cancel binding: fires when any operation is in progress (Recording or Processing)
+    // Cancel binding: fires when any user intent is in progress
     if binding_id == "cancel" {
-        let op_controller = app.state::<Arc<OperationController>>();
-        if op_controller.is_busy() && is_pressed {
+        let controller = app.state::<Arc<GlobalController>>();
+        if controller.is_busy() && is_pressed {
             action.start(app, binding_id, hotkey_string);
         }
         return;

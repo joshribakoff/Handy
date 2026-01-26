@@ -326,7 +326,7 @@ impl AudioRecordingManager {
     /* ---------- recording --------------------------------------------------- */
 
     /// Start recording audio. Returns true if started successfully.
-    /// Note: Call OperationController.maybe_start_recording() first to check state.
+    /// Caller should acquire UserIntentController lock first (see actions.rs).
     pub fn start_recording(&self) -> bool {
         // Ensure microphone is open in on-demand mode
         if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
@@ -357,7 +357,7 @@ impl AudioRecordingManager {
     }
 
     /// Stop recording and return the audio samples.
-    /// Note: Call OperationController.stop_recording() first to transition state.
+    /// Caller should advance UserIntentController phase first (see actions.rs).
     pub fn stop_recording(&self) -> Vec<f32> {
         let samples = if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
             match rec.stop() {

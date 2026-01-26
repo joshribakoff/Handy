@@ -4,7 +4,7 @@ use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, S
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::transcription::TranscriptionManager;
-use crate::operation_state::OperationController;
+use crate::global_controller::GlobalController;
 use crate::settings::{get_settings, AppSettings, APPLE_INTELLIGENCE_PROVIDER_ID};
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
@@ -219,7 +219,7 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
-        let op_controller = app.state::<Arc<OperationController>>();
+        let op_controller = app.state::<Arc<GlobalController>>();
 
         // Try to start an operation
         if let Err(reason) = op_controller.begin() {
@@ -298,7 +298,7 @@ impl ShortcutAction for TranscribeAction {
         let stop_time = Instant::now();
         debug!("TranscribeAction::stop called for binding: {}", binding_id);
 
-        let op_controller = app.state::<Arc<OperationController>>();
+        let op_controller = app.state::<Arc<GlobalController>>();
 
         // Atomically try to transition Recording -> Processing
         match op_controller.advance() {
@@ -339,7 +339,7 @@ impl ShortcutAction for TranscribeAction {
 
             // Completion guard: ensures complete() is called even on panic
             struct CompletionGuard {
-                controller: Arc<OperationController>,
+                controller: Arc<GlobalController>,
                 app_handle: AppHandle,
                 binding_id: String,
             }

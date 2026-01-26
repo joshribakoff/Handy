@@ -9,7 +9,7 @@ mod helpers;
 mod input;
 mod llm_client;
 mod managers;
-mod operation_state;
+mod global_controller;
 mod overlay;
 mod settings;
 mod shortcut;
@@ -40,7 +40,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_log::{Builder as LogBuilder, RotationStrategy, Target, TargetKind};
 
-use crate::operation_state::OperationController;
+use crate::global_controller::GlobalController;
 use crate::settings::get_settings;
 
 // Global atomic to store the file log level filter
@@ -136,8 +136,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(history_manager.clone());
 
-    // Add operation state controller for race condition prevention
-    app_handle.manage(Arc::new(OperationController::new()));
+    // Global user intent lock - prevents concurrent operations (#641, #462)
+    app_handle.manage(Arc::new(GlobalController::new()));
 
     // Initialize the shortcuts
     shortcut::init_shortcuts(app_handle);
