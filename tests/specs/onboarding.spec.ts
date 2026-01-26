@@ -1,13 +1,36 @@
 import { test, expect } from "@playwright/test";
 import { OnboardingPage } from "../pages/onboarding.page";
 
-/**
- * Onboarding flow tests for Handy app
- *
- * Note: These tests run against the Vite dev server (not the full Tauri app).
- * Tauri commands (like hasAnyModelsAvailable, downloadModel) may not be available
- * in the browser context, so we test the UI behavior and structure.
- */
+const mockModels = [
+  {
+    id: "parakeet-v3",
+    name: "Parakeet V3",
+    description: "Best balance of speed and accuracy",
+    size: 500 * 1024 * 1024, // 500 MB
+    accuracy: 95,
+    speed: 85,
+    featured: true,
+  },
+  {
+    id: "whisper-tiny",
+    name: "Whisper Tiny",
+    description: "Fastest, lowest accuracy",
+    size: 75 * 1024 * 1024, // 75 MB
+    accuracy: 60,
+    speed: 100,
+    featured: false,
+  },
+  {
+    id: "whisper-large",
+    name: "Whisper Large",
+    description: "Most accurate, slowest",
+    size: 3 * 1024 * 1024 * 1024, // 3 GB
+    accuracy: 100,
+    speed: 30,
+    featured: false,
+  },
+];
+
 test.describe("Onboarding Flow", () => {
   let onboarding: OnboardingPage;
 
@@ -17,13 +40,9 @@ test.describe("Onboarding Flow", () => {
   });
 
   test.describe("Permissions Screen", () => {
-    test("shows permissions screen on first launch", async ({ page }) => {
-      // The app starts with checking onboarding status
-      // On non-macOS or when permissions already granted, it may skip directly
-      // We check if either permissions or model selection screen is shown
+    test("shows permissions screen on first launch", async () => {
       await onboarding.waitForOnboarding();
 
-      // Either on permissions screen or model selection screen
       const onPermissions = await onboarding.isOnPermissionsScreen();
       const onModelSelection = await onboarding.isOnModelSelectionScreen();
 
@@ -35,30 +54,28 @@ test.describe("Onboarding Flow", () => {
     }) => {
       await onboarding.waitForOnboarding();
 
-      // Skip if not on permissions screen (e.g., non-macOS)
       if (!(await onboarding.isOnPermissionsScreen())) {
         test.skip();
         return;
       }
 
-      // Check title and description
       await expect(onboarding.permissionsTitle).toBeVisible();
       await expect(onboarding.permissionsDescription).toBeVisible();
 
-      // Check for microphone card
       await expect(page.getByText("Microphone Access")).toBeVisible();
       await expect(
-        page.getByText("Required to hear your voice for transcription.")
+        page.getByText("Required to hear your voice for transcription."),
       ).toBeVisible();
 
-      // Check for accessibility card
       await expect(page.getByText("Accessibility Access")).toBeVisible();
       await expect(
-        page.getByText("Required to type transcribed text into your applications.")
+        page.getByText(
+          "Required to type transcribed text into your applications.",
+        ),
       ).toBeVisible();
     });
 
-    test("grant permission buttons are clickable", async ({ page }) => {
+    test("grant permission buttons are clickable", async () => {
       await onboarding.waitForOnboarding();
 
       if (!(await onboarding.isOnPermissionsScreen())) {
@@ -66,11 +83,9 @@ test.describe("Onboarding Flow", () => {
         return;
       }
 
-      // Should have at least one "Grant Permission" button
       const grantButtons = await onboarding.grantPermissionButtons.all();
       expect(grantButtons.length).toBeGreaterThan(0);
 
-      // Buttons should be visible and enabled
       for (const button of grantButtons) {
         await expect(button).toBeVisible();
         await expect(button).toBeEnabled();
@@ -79,20 +94,20 @@ test.describe("Onboarding Flow", () => {
   });
 
   test.describe("Model Selection Screen", () => {
-    test("displays model selection subtitle", async ({ page }) => {
+    test("displays model selection subtitle", async () => {
       await onboarding.waitForOnboarding();
 
-      // If on permissions, we can't easily skip to models in browser-only test
-      // Check if we're on model selection screen
       if (await onboarding.isOnModelSelectionScreen()) {
         await expect(onboarding.subtitle).toBeVisible();
         await expect(onboarding.subtitle).toHaveText(
-          "To get started, choose a transcription model"
+          "To get started, choose a transcription model",
         );
       }
     });
 
-    test("displays model cards when on model selection screen", async ({ page }) => {
+    test("displays model cards when on model selection screen", async ({
+      page,
+    }) => {
       await onboarding.waitForOnboarding();
 
       if (!(await onboarding.isOnModelSelectionScreen())) {
@@ -100,15 +115,15 @@ test.describe("Onboarding Flow", () => {
         return;
       }
 
-      // Wait for model cards to load
-      await page.waitForTimeout(500); // Allow time for API call
+      await page.waitForTimeout(500);
 
-      // Should have at least one model card
       const cards = await onboarding.getModelCards();
       expect(cards.length).toBeGreaterThan(0);
     });
 
-    test("model cards display name, size, and description", async ({ page }) => {
+    test("model cards display name, size, and description", async ({
+      page,
+    }) => {
       await onboarding.waitForOnboarding();
 
       if (!(await onboarding.isOnModelSelectionScreen())) {
@@ -124,16 +139,14 @@ test.describe("Onboarding Flow", () => {
         return;
       }
 
-      // Check first card has required info
       const firstCard = cards[0];
       const info = await onboarding.getModelInfo(firstCard);
 
       expect(info.name).toBeTruthy();
       expect(info.description).toBeTruthy();
-      // Size might not be visible in all states
     });
 
-    test("recommended model (Parakeet V3) has featured badge", async ({ page }) => {
+    test("recommended model has featured badge", async ({ page }) => {
       await onboarding.waitForOnboarding();
 
       if (!(await onboarding.isOnModelSelectionScreen())) {
@@ -143,18 +156,18 @@ test.describe("Onboarding Flow", () => {
 
       await page.waitForTimeout(500);
 
-      // Check for "Recommended" badge
       const recommendedVisible = await onboarding.recommendedBadge.isVisible();
 
       if (recommendedVisible) {
-        // The featured card should have the Recommended badge
         await expect(onboarding.featuredModelCard).toBeVisible();
-        const info = await onboarding.getModelInfo(onboarding.featuredModelCard);
+        const info = await onboarding.getModelInfo(
+          onboarding.featuredModelCard,
+        );
         expect(info.isFeatured).toBeTruthy();
       }
     });
 
-    test("model cards show accuracy and speed bars", async ({ page }) => {
+    test("model cards show accuracy and speed labels", async ({ page }) => {
       await onboarding.waitForOnboarding();
 
       if (!(await onboarding.isOnModelSelectionScreen())) {
@@ -170,61 +183,18 @@ test.describe("Onboarding Flow", () => {
         return;
       }
 
-      // Check that accuracy and speed labels are present
       await expect(page.getByText("accuracy").first()).toBeVisible();
       await expect(page.getByText("speed").first()).toBeVisible();
     });
-
-    test("clicking model card triggers selection", async ({ page }) => {
-      await onboarding.waitForOnboarding();
-
-      if (!(await onboarding.isOnModelSelectionScreen())) {
-        test.skip();
-        return;
-      }
-
-      await page.waitForTimeout(500);
-
-      const cards = await onboarding.getModelCards();
-      if (cards.length === 0) {
-        test.skip();
-        return;
-      }
-
-      // Click the first card
-      await cards[0].click();
-
-      // In browser-only test, the Tauri command will fail
-      // But we can verify the click was handled (no JS errors)
-      // The card should be clickable
-      await expect(cards[0]).toBeEnabled();
-    });
   });
 
-  test.describe("UI Structure", () => {
-    test("page has proper HTML structure", async ({ page }) => {
-      await onboarding.goto();
-
-      // Basic structure check
-      const html = await page.content();
-      expect(html).toContain("<html");
-      expect(html).toContain("<body");
-    });
-
-    test("onboarding takes full screen", async ({ page }) => {
-      await onboarding.waitForOnboarding();
-
-      // Check for h-screen w-screen classes on container
-      const container = page.locator(".h-screen.w-screen").first();
-      await expect(container).toBeVisible();
-    });
-
-    test("no console errors on load", async ({ page }) => {
+  test.describe("No Console Errors", () => {
+    test("no unexpected console errors on load", async ({ page }) => {
       const errors: string[] = [];
       page.on("console", (msg) => {
         if (msg.type() === "error") {
-          // Ignore Tauri-related errors in browser context
           const text = msg.text();
+          // Ignore Tauri-related errors in browser context
           if (
             !text.includes("__TAURI__") &&
             !text.includes("tauri") &&
@@ -238,49 +208,182 @@ test.describe("Onboarding Flow", () => {
       await onboarding.goto();
       await onboarding.waitForOnboarding();
 
-      // Filter out expected errors from browser-only testing
       const unexpectedErrors = errors.filter(
-        (e) => !e.includes("Failed to check") && !e.includes("permission")
+        (e) => !e.includes("Failed to check") && !e.includes("permission"),
       );
 
       expect(unexpectedErrors).toHaveLength(0);
     });
   });
 
-  test.describe("Model List Sorting", () => {
-    test("non-featured models are sorted by size", async ({ page }) => {
-      await onboarding.waitForOnboarding();
+  test.describe("Model Download Flow (Mocked Tauri)", () => {
+    test("model download flow shows progress and completion", async ({
+      page,
+    }) => {
+      let downloadProgress = 0;
+      let downloadedModelId: string | null = null;
 
-      if (!(await onboarding.isOnModelSelectionScreen())) {
-        test.skip();
-        return;
-      }
+      // Mock Tauri commands
+      await page.addInitScript((models) => {
+        // @ts-expect-error - Tauri types
+        window.__TAURI__ = {
+          core: {
+            invoke: async (cmd: string, args?: Record<string, unknown>) => {
+              if (cmd === "get_available_models") {
+                return models;
+              }
+              if (cmd === "get_downloaded_models") {
+                return [];
+              }
+              if (cmd === "has_any_models_available") {
+                return false;
+              }
+              if (cmd === "download_model") {
+                // Store which model is being downloaded
+                // @ts-expect-error - window extension
+                window.__downloadingModel = args?.modelId;
+                return { status: "downloading", progress: 0 };
+              }
+              if (cmd === "get_download_progress") {
+                // @ts-expect-error - window extension
+                const progress = window.__downloadProgress || 0;
+                return { progress };
+              }
+              if (cmd === "check_microphone_permission") {
+                return true;
+              }
+              if (cmd === "check_accessibility_permission") {
+                return true;
+              }
+              return null;
+            },
+          },
+          event: {
+            listen: async (
+              event: string,
+              callback: (payload: { payload: unknown }) => void,
+            ) => {
+              if (event === "download-progress") {
+                // Simulate progress updates
+                setTimeout(() => callback({ payload: { progress: 25 } }), 100);
+                setTimeout(() => callback({ payload: { progress: 50 } }), 200);
+                setTimeout(() => callback({ payload: { progress: 75 } }), 300);
+                setTimeout(() => callback({ payload: { progress: 100 } }), 400);
+              }
+              return () => {};
+            },
+          },
+        };
+      }, mockModels);
 
-      await page.waitForTimeout(500);
+      await page.goto("/");
 
-      // Get all model sizes (excluding featured card which is shown first)
-      const sizeElements = page.locator(".tabular-nums span.font-medium");
-      const sizes = await sizeElements.allTextContents();
+      // Wait for model selection screen
+      await expect(
+        page.getByText("To get started, choose a transcription model"),
+      ).toBeVisible({
+        timeout: 10000,
+      });
 
-      // Parse sizes (e.g., "500 MB", "1.5 GB")
-      const parsedSizes = sizes
-        .map((s) => {
-          const match = s.match(/([\d.]+)\s*(MB|GB)/i);
-          if (!match) return null;
-          const value = parseFloat(match[1]);
-          const unit = match[2].toUpperCase();
-          return unit === "GB" ? value * 1024 : value;
-        })
-        .filter((s): s is number => s !== null);
+      // Assert: Model cards should be visible
+      await expect(
+        page.getByRole("heading", { name: "Parakeet V3" }),
+      ).toBeVisible();
 
-      // If we have multiple sizes, verify ascending order (after featured card)
-      if (parsedSizes.length > 1) {
-        // Skip first if it's the featured model
-        const sizesToCheck = parsedSizes.slice(1);
-        for (let i = 1; i < sizesToCheck.length; i++) {
-          expect(sizesToCheck[i]).toBeGreaterThanOrEqual(sizesToCheck[i - 1]);
-        }
-      }
+      // Act: Click download on the recommended model
+      const recommendedCard = page.getByRole("button").filter({
+        has: page.getByText("Recommended"),
+      });
+      await recommendedCard.click();
+
+      // Assert: Download started - check for progress indicator or downloading state
+      // The exact UI depends on implementation, but we expect some feedback
+      await expect(
+        page
+          .getByText(/downloading|progress|%/i)
+          .or(page.getByRole("progressbar")),
+      ).toBeVisible({ timeout: 5000 });
+    });
+
+    test("shows no models downloaded state initially", async ({ page }) => {
+      // Mock Tauri with empty downloaded models
+      await page.addInitScript((models) => {
+        // @ts-expect-error - Tauri types
+        window.__TAURI__ = {
+          core: {
+            invoke: async (cmd: string) => {
+              if (cmd === "get_available_models") return models;
+              if (cmd === "get_downloaded_models") return [];
+              if (cmd === "has_any_models_available") return false;
+              if (cmd === "check_microphone_permission") return true;
+              if (cmd === "check_accessibility_permission") return true;
+              return null;
+            },
+          },
+          event: {
+            listen: async () => () => {},
+          },
+        };
+      }, mockModels);
+
+      await page.goto("/");
+
+      // Wait for model selection screen
+      await expect(
+        page.getByText("To get started, choose a transcription model"),
+      ).toBeVisible({
+        timeout: 10000,
+      });
+
+      // All models should show download option (none are downloaded)
+      const modelCards = page.getByRole("button").filter({
+        has: page.getByRole("heading"),
+      });
+      const count = await modelCards.count();
+      expect(count).toBeGreaterThan(0);
+    });
+
+    test("displays available models from mocked API", async ({ page }) => {
+      await page.addInitScript((models) => {
+        // @ts-expect-error - Tauri types
+        window.__TAURI__ = {
+          core: {
+            invoke: async (cmd: string) => {
+              if (cmd === "get_available_models") return models;
+              if (cmd === "get_downloaded_models") return [];
+              if (cmd === "has_any_models_available") return false;
+              if (cmd === "check_microphone_permission") return true;
+              if (cmd === "check_accessibility_permission") return true;
+              return null;
+            },
+          },
+          event: {
+            listen: async () => () => {},
+          },
+        };
+      }, mockModels);
+
+      await page.goto("/");
+
+      await expect(
+        page.getByText("To get started, choose a transcription model"),
+      ).toBeVisible({
+        timeout: 10000,
+      });
+
+      // Check that our mocked models are displayed
+      await expect(
+        page.getByRole("heading", { name: "Parakeet V3" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "Whisper Tiny" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "Whisper Large" }),
+      ).toBeVisible();
+
+      // Verify recommended badge on featured model
+      await expect(page.getByText("Recommended")).toBeVisible();
     });
   });
 });

@@ -1,4 +1,4 @@
-import { type Page, type Locator, expect } from "@playwright/test";
+import { type Page, type Locator } from "@playwright/test";
 
 /**
  * Page object for onboarding screens (model selection and permissions)
@@ -23,39 +23,51 @@ export class OnboardingPage {
   readonly permissionGrantedIndicators: Locator;
   readonly permissionWaitingIndicators: Locator;
   readonly allGrantedMessage: Locator;
-  readonly loadingSpinner: Locator;
 
   constructor(page: Page) {
     this.page = page;
 
-    // Model selection screen locators
-    this.logo = page.locator("svg").first(); // HandyTextLogo
-    this.subtitle = page.getByText("To get started, choose a transcription model");
-    this.modelCards = page.locator("button").filter({ has: page.locator("h3") });
-    this.featuredModelCard = page.locator("button").filter({
+    // Model selection screen locators - using semantic selectors
+    this.logo = page.getByRole("img", { name: /handy|logo/i });
+    this.subtitle = page.getByText(
+      "To get started, choose a transcription model",
+    );
+    this.modelCards = page
+      .getByRole("button")
+      .filter({ has: page.getByRole("heading") });
+    this.featuredModelCard = page.getByRole("button").filter({
       has: page.getByText("Recommended"),
     });
     this.recommendedBadge = page.getByText("Recommended");
-    this.errorMessage = page.locator(".bg-red-500\\/10");
+    this.errorMessage = page.getByRole("alert");
 
-    // Permissions screen locators
-    this.permissionsTitle = page.getByText("Permissions Required");
+    // Permissions screen locators - using semantic selectors
+    this.permissionsTitle = page.getByRole("heading", {
+      name: "Permissions Required",
+    });
     this.permissionsDescription = page.getByText(
-      "Handy needs a couple of permissions to work properly."
+      "Handy needs a couple of permissions to work properly.",
     );
-    this.microphoneCard = page.locator("div").filter({
-      has: page.getByText("Microphone Access"),
-    });
-    this.accessibilityCard = page.locator("div").filter({
-      has: page.getByText("Accessibility Access"),
-    });
+    this.microphoneCard = page
+      .getByRole("region", { name: /microphone/i })
+      .or(
+        page
+          .locator("div")
+          .filter({ has: page.getByText("Microphone Access") }),
+      );
+    this.accessibilityCard = page
+      .getByRole("region", { name: /accessibility/i })
+      .or(
+        page
+          .locator("div")
+          .filter({ has: page.getByText("Accessibility Access") }),
+      );
     this.grantPermissionButtons = page.getByRole("button", {
       name: "Grant Permission",
     });
     this.permissionGrantedIndicators = page.getByText("Granted");
     this.permissionWaitingIndicators = page.getByText("Waiting...");
     this.allGrantedMessage = page.getByText("All set!");
-    this.loadingSpinner = page.locator(".animate-spin");
   }
 
   async goto() {
@@ -66,7 +78,6 @@ export class OnboardingPage {
    * Wait for onboarding screen to be visible (either permissions or model selection)
    */
   async waitForOnboarding() {
-    // Wait for either permissions screen or model selection screen
     await Promise.race([
       this.permissionsTitle.waitFor({ state: "visible", timeout: 10000 }),
       this.subtitle.waitFor({ state: "visible", timeout: 10000 }),
@@ -99,7 +110,7 @@ export class OnboardingPage {
    * Get model card by name
    */
   getModelCardByName(name: string): Locator {
-    return this.page.locator("button").filter({
+    return this.page.getByRole("button").filter({
       has: this.page.getByRole("heading", { name, exact: false }),
     });
   }
@@ -113,9 +124,11 @@ export class OnboardingPage {
     size: string;
     isFeatured: boolean;
   }> {
-    const name = await card.locator("h3").textContent();
-    const description = await card.locator("p").first().textContent();
-    const sizeText = await card.locator(".tabular-nums span.font-medium").textContent();
+    const name = await card.getByRole("heading").textContent();
+    const description = await card.getByRole("paragraph").first().textContent();
+    const sizeText = await card
+      .getByText(/\d+(\.\d+)?\s*(MB|GB)/i)
+      .textContent();
     const isFeatured = await card.getByText("Recommended").isVisible();
 
     return {
@@ -186,34 +199,33 @@ export class OnboardingPage {
    * Wait for main app after onboarding completes
    */
   async waitForMainApp() {
-    // Main app has sidebar with "General" section
-    await this.page.getByText("General").waitFor({ state: "visible", timeout: 15000 });
+    await this.page
+      .getByText("General")
+      .waitFor({ state: "visible", timeout: 15000 });
   }
 
   /**
-   * Get the accuracy progress bar width percentage for a model card
+   * Get the accuracy progress bar value for a model card
    */
   async getAccuracyScore(card: Locator): Promise<number> {
     const accuracyBar = card
       .locator("div")
       .filter({ hasText: "accuracy" })
-      .locator(".bg-logo-primary");
-    const style = await accuracyBar.getAttribute("style");
-    const match = style?.match(/width:\s*(\d+)%/);
-    return match ? parseInt(match[1], 10) : 0;
+      .getByRole("progressbar");
+    const value = await accuracyBar.getAttribute("aria-valuenow");
+    return value ? parseInt(value, 10) : 0;
   }
 
   /**
-   * Get the speed progress bar width percentage for a model card
+   * Get the speed progress bar value for a model card
    */
   async getSpeedScore(card: Locator): Promise<number> {
     const speedBar = card
       .locator("div")
       .filter({ hasText: "speed" })
-      .locator(".bg-logo-primary");
-    const style = await speedBar.getAttribute("style");
-    const match = style?.match(/width:\s*(\d+)%/);
-    return match ? parseInt(match[1], 10) : 0;
+      .getByRole("progressbar");
+    const value = await speedBar.getAttribute("aria-valuenow");
+    return value ? parseInt(value, 10) : 0;
   }
 
   /**
