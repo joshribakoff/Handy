@@ -1,4 +1,5 @@
 import { Page, Locator } from "@playwright/test";
+import { getTauriMockScript } from "../../fixtures/tauri-mock";
 
 /**
  * Page object for General Settings section.
@@ -15,6 +16,7 @@ export class GeneralSettingsPage {
    * Navigate to general settings (default section)
    */
   async goto() {
+    await this.page.addInitScript(getTauriMockScript({ hasModels: true }));
     await this.page.goto("/");
     await this.page.getByRole("heading", { name: "General" }).first().waitFor();
   }

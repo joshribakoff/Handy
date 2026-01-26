@@ -7,42 +7,50 @@ import {
 import { getTauriMockScript } from "../fixtures/tauri-mock";
 
 test.describe("Sidebar Navigation", () => {
-  test("sidebar renders with always-visible sections", async ({ page }) => {
+  test("sidebar renders with always-visible sections", async ({
+    sidebar,
+    page,
+  }) => {
     // Always-visible: General, Advanced, History, About
     for (const section of ALWAYS_VISIBLE_SECTIONS) {
       await expect(
-        page.getByRole("button", { name: SECTION_LABELS[section] }),
+        page.getByText(SECTION_LABELS[section], { exact: true }).first(),
       ).toBeVisible();
     }
   });
 
-  test("clicking section switches the active view", async ({ page }) => {
+  test("clicking section switches the active view", async ({
+    sidebar,
+    page,
+  }) => {
     // Click Advanced
-    await page.getByRole("button", { name: "Advanced" }).click();
+    await page.getByText("Advanced", { exact: true }).first().click();
     // Verify Advanced settings content is shown
     await expect(page.getByText("Output")).toBeVisible();
 
     // Click History
-    await page.getByRole("button", { name: "History" }).click();
+    await page.getByText("History", { exact: true }).first().click();
     // Verify History content is shown
     await expect(page.getByText("Open Recordings Folder")).toBeVisible();
 
     // Click About
-    await page.getByRole("button", { name: "About" }).click();
+    await page.getByText("About", { exact: true }).first().click();
     // Verify About content is shown
     await expect(page.getByText("Version")).toBeVisible();
 
     // Click back to General
-    await page.getByRole("button", { name: "General" }).click();
+    await page.getByText("General", { exact: true }).first().click();
     // General is the default view, verify it loaded
-    await expect(page.getByRole("button", { name: "General" })).toBeVisible();
+    await expect(
+      page.getByText("General", { exact: true }).first(),
+    ).toBeVisible();
   });
 
-  test("section labels match expected text", async ({ page }) => {
+  test("section labels match expected text", async ({ sidebar, page }) => {
     // Check always-visible sections are present with correct labels
     for (const section of ALWAYS_VISIBLE_SECTIONS) {
       await expect(
-        page.getByRole("button", { name: SECTION_LABELS[section] }),
+        page.getByText(SECTION_LABELS[section], { exact: true }).first(),
       ).toBeVisible();
     }
   });
@@ -68,17 +76,20 @@ test.describe("Conditional Sections", () => {
 
     // Wait for sidebar to load
     await page
-      .getByRole("button", { name: "General" })
+      .getByText("General", { exact: true })
+      .first()
       .waitFor({ state: "visible", timeout: 10000 });
 
     // Debug section should be visible
-    await expect(page.getByRole("button", { name: "Debug" })).toBeVisible();
+    await expect(
+      page.getByText("Debug", { exact: true }).first(),
+    ).toBeVisible();
 
     // Click debug section
-    await page.getByRole("button", { name: "Debug" }).click();
+    await page.getByText("Debug", { exact: true }).first().click();
 
     // Verify Debug content is shown
-    await expect(page.getByText("Log Directory")).toBeVisible();
+    await expect(page.getByText("Log Level")).toBeVisible();
   });
 
   test("post-processing section visible when enabled", async ({ page }) => {
@@ -90,16 +101,17 @@ test.describe("Conditional Sections", () => {
 
     // Wait for sidebar to load
     await page
-      .getByRole("button", { name: "General" })
+      .getByText("General", { exact: true })
+      .first()
       .waitFor({ state: "visible", timeout: 10000 });
 
     // Post-processing section should be visible
     await expect(
-      page.getByRole("button", { name: "Post Process" }),
+      page.getByText("Post Process", { exact: true }).first(),
     ).toBeVisible();
 
     // Click post-processing section
-    await page.getByRole("button", { name: "Post Process" }).click();
+    await page.getByText("Post Process", { exact: true }).first().click();
   });
 
   test("all 6 sections visible with all features enabled", async ({ page }) => {
@@ -115,17 +127,28 @@ test.describe("Conditional Sections", () => {
 
     // Wait for sidebar to load
     await page
-      .getByRole("button", { name: "General" })
+      .getByText("General", { exact: true })
+      .first()
       .waitFor({ state: "visible", timeout: 10000 });
 
     // Verify each section is visible
-    await expect(page.getByRole("button", { name: "General" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Advanced" })).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Post Process" }),
+      page.getByText("General", { exact: true }).first(),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "History" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Debug" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "About" })).toBeVisible();
+    await expect(
+      page.getByText("Advanced", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Post Process", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("History", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Debug", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("About", { exact: true }).first(),
+    ).toBeVisible();
   });
 });

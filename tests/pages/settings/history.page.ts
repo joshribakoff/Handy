@@ -28,7 +28,7 @@ export class HistoryPage extends BasePage {
 
   async navigate(): Promise<void> {
     await this.goto();
-    await this.waitForLoad();
+    await this.waitForApp();
     await this.sidebar.navigateToHistory();
   }
 

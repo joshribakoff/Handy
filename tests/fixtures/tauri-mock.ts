@@ -21,14 +21,51 @@ const DEFAULT_CONFIG: TauriMockConfig = {
 /**
  * Default mock responses for Tauri commands.
  */
+// Models available for download (used in onboarding)
+const AVAILABLE_MODELS = [
+  {
+    id: "parakeet-v3",
+    name: "Parakeet V3",
+    description: "Best balance of speed and accuracy",
+    size: 500 * 1024 * 1024, // 500 MB
+    accuracy: 95,
+    speed: 85,
+    featured: true,
+    is_downloaded: false,
+  },
+  {
+    id: "whisper-tiny",
+    name: "Whisper Tiny",
+    description: "Fastest, lowest accuracy",
+    size: 75 * 1024 * 1024, // 75 MB
+    accuracy: 60,
+    speed: 100,
+    featured: false,
+    is_downloaded: false,
+  },
+  {
+    id: "whisper-large",
+    name: "Whisper Large",
+    description: "Most accurate, slowest",
+    size: 3 * 1024 * 1024 * 1024, // 3 GB
+    accuracy: 100,
+    speed: 30,
+    featured: false,
+    is_downloaded: false,
+  },
+];
+
 export function getMockResponses(config: TauriMockConfig = {}) {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+
+  // Provide available models for onboarding (when hasModels is false)
+  const models = cfg.hasModels ? [] : AVAILABLE_MODELS;
 
   return {
     // Model commands
     has_any_models_available: cfg.hasModels,
     has_any_models_or_downloads: cfg.hasModels,
-    get_available_models: [],
+    get_available_models: models,
     get_current_model: null,
     get_transcription_model_status: null,
     is_model_loading: false,
@@ -91,10 +128,17 @@ export function getMockResponses(config: TauriMockConfig = {}) {
     // Misc commands
     initialize_enigo: null,
     check_apple_intelligence_available: false,
+    check_custom_sounds: [],
 
     // Permission commands (for onboarding)
     check_accessibility_permission: true,
     check_microphone_permission: true,
+
+    // Plugin commands
+    "plugin:macos-permissions|check_accessibility_permission": true,
+    "plugin:macos-permissions|check_microphone_permission": true,
+    "plugin:app|version": "0.1.0-test",
+    "plugin:event|listen": 1, // Return listener ID
   };
 }
 
@@ -129,6 +173,17 @@ export function getTauriMockScript(config: TauriMockConfig = {}): string {
       // Mock event listening (no-op)
       window.__TAURI_INTERNALS__.transformCallback = function(cb) {
         return 0;
+      };
+
+      // Mock OS plugin internals
+      window.__TAURI_OS_PLUGIN_INTERNALS__ = {
+        os_type: "macos",
+        platform: "macos",
+        family: "unix",
+        version: "14.0.0",
+        arch: "aarch64",
+        exe_extension: "",
+        eol: "\\n"
       };
 
       console.log('[TauriMock] Mocks installed');

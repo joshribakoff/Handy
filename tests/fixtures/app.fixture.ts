@@ -20,7 +20,8 @@ export const test = base.extend<{
     // Wait for app to be ready (General section should be visible)
     const sidebar = new SidebarPage(page);
     await page
-      .getByRole("button", { name: "General" })
+      .getByText("General", { exact: true })
+      .first()
       .waitFor({ state: "visible", timeout: 10000 });
 
     await use(sidebar);

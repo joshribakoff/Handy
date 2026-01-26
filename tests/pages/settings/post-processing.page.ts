@@ -1,4 +1,5 @@
 import { type Locator, type Page } from "@playwright/test";
+import { getTauriMockScript, TauriMockConfig } from "../../fixtures/tauri-mock";
 
 /**
  * Page object for Post-Processing settings section.
@@ -72,13 +73,17 @@ export class PostProcessingPage {
   }
 
   /** Navigate to the Post Processing section via sidebar */
-  async goto() {
+  async goto(
+    config: TauriMockConfig = { hasModels: true, postProcessEnabled: true },
+  ) {
+    await this.page.addInitScript(getTauriMockScript(config));
     await this.page.goto("/");
     await this.page.getByRole("link", { name: /post process/i }).click();
   }
 
   /** Navigate to Advanced Settings */
-  async gotoAdvanced() {
+  async gotoAdvanced(config: TauriMockConfig = { hasModels: true }) {
+    await this.page.addInitScript(getTauriMockScript(config));
     await this.page.goto("/");
     const isMainApp = await this.isMainAppVisible();
     if (!isMainApp) {

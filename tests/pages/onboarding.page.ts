@@ -1,4 +1,5 @@
 import { type Page, type Locator } from "@playwright/test";
+import { getTauriMockScript, TauriMockConfig } from "../fixtures/tauri-mock";
 
 /**
  * Page object for onboarding screens (model selection and permissions)
@@ -70,7 +71,8 @@ export class OnboardingPage {
     this.allGrantedMessage = page.getByText("All set!");
   }
 
-  async goto() {
+  async goto(config: TauriMockConfig = { hasModels: false }) {
+    await this.page.addInitScript(getTauriMockScript(config));
     await this.page.goto("/");
   }
 

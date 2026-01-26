@@ -1,9 +1,11 @@
 import { type Page, type Locator } from "@playwright/test";
+import { getTauriMockScript, TauriMockConfig } from "../fixtures/tauri-mock";
 
 export abstract class BasePage {
   constructor(protected readonly page: Page) {}
 
-  async goto(): Promise<void> {
+  async goto(config: TauriMockConfig = { hasModels: true }): Promise<void> {
+    await this.page.addInitScript(getTauriMockScript(config));
     await this.page.goto("/");
   }
 
@@ -40,5 +42,27 @@ export abstract class BasePage {
   async enableDebugMode(): Promise<void> {
     const modifier = process.platform === "darwin" ? "Meta" : "Control";
     await this.page.keyboard.press(`${modifier}+Shift+D`);
+  }
+
+  /** Wait for the main app to load */
+  async waitForApp(): Promise<void> {
+    await this.page
+      .getByText("General", { exact: true })
+      .first()
+      .waitFor({ state: "visible", timeout: 10000 });
+  }
+
+  /** Get a toggle switch by label */
+  getToggle(label: string): Locator {
+    return this.page.getByRole("switch", { name: new RegExp(label, "i") });
+  }
+
+  /** Get a dropdown trigger by label */
+  getDropdownTrigger(label: string): Locator {
+    return this.page
+      .locator("div")
+      .filter({ has: this.page.getByText(label, { exact: false }) })
+      .getByRole("combobox")
+      .or(this.page.getByRole("combobox", { name: new RegExp(label, "i") }));
   }
 }
