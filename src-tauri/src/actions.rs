@@ -300,15 +300,9 @@ impl ShortcutAction for TranscribeAction {
         let stop_time = Instant::now();
         debug!("TranscribeAction::stop called for binding: {}", binding_id);
 
-        // Check operation state machine - transition from Recording to Processing
+        // Transition state machine from Recording to Processing
         let op_controller = app.state::<Arc<OperationController>>();
-        if !op_controller.maybe_stop_recording() {
-            debug!(
-                "TranscribeAction::stop blocked - not in recording state (state: {:?})",
-                op_controller.current_state()
-            );
-            return;
-        }
+        op_controller.stop_recording();
 
         let ah = app.clone();
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());

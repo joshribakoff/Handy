@@ -163,28 +163,25 @@ impl OperationController {
         }
     }
 
-    /// Attempt to stop recording and begin processing. Returns true if allowed.
-    pub fn maybe_stop_recording(&self) -> bool {
+    /// Stop recording and transition to Processing state.
+    /// If already Processing or Idle, this is a no-op.
+    /// Stop always succeeds - there's no "maybe" about stopping.
+    pub fn stop_recording(&self) {
         let mut state = self.state.lock().unwrap();
-        let (new_state, result) = state.maybe_stop_recording();
-        if matches!(result, TransitionResult::Ok) {
-            *state = new_state;
-            true
-        } else {
-            false
+        if matches!(*state, OperationState::Recording) {
+            *state = OperationState::Processing;
         }
+        // If already Processing/Idle, do nothing - stop request is satisfied
     }
 
-    /// Mark processing as complete. Returns true if allowed.
-    pub fn complete_processing(&self) -> bool {
+    /// Mark processing as complete and return to Idle.
+    /// If already Idle, this is a no-op.
+    pub fn complete_processing(&self) {
         let mut state = self.state.lock().unwrap();
-        let (new_state, result) = state.complete_processing();
-        if matches!(result, TransitionResult::Ok) {
-            *state = new_state;
-            true
-        } else {
-            false
+        if matches!(*state, OperationState::Processing) {
+            *state = OperationState::Idle;
         }
+        // If already Idle, do nothing - completion request is satisfied
     }
 
     /// Force reset to Idle state. Used for cancellation.
@@ -367,15 +364,15 @@ mod tests {
         // Can't start again
         assert!(!controller.maybe_start_recording());
 
-        // Stop recording -> processing
-        assert!(controller.maybe_stop_recording());
+        // Stop recording -> processing (always succeeds, no return value)
+        controller.stop_recording();
         assert_eq!(controller.current_state(), OperationState::Processing);
 
         // Can't start while processing
         assert!(!controller.maybe_start_recording());
 
-        // Complete
-        assert!(controller.complete_processing());
+        // Complete (always succeeds, no return value)
+        controller.complete_processing();
         assert_eq!(controller.current_state(), OperationState::Idle);
 
         // Now can start again
