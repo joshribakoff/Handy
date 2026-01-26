@@ -9,18 +9,13 @@ import { type Locator, type Page } from "@playwright/test";
 export class PostProcessingPage {
   readonly page: Page;
 
-  // API Settings group
-  readonly apiSettingsGroup: Locator;
+  // API Settings
   readonly providerDropdown: Locator;
-  readonly providerDropdownButton: Locator;
   readonly apiKeyInput: Locator;
   readonly baseUrlInput: Locator;
-  readonly modelSelect: Locator;
   readonly modelRefreshButton: Locator;
 
-  // Prompts group
-  readonly promptsSettingsGroup: Locator;
-  readonly promptSelector: Locator;
+  // Prompts
   readonly createPromptButton: Locator;
   readonly promptLabelInput: Locator;
   readonly promptTextarea: Locator;
@@ -29,65 +24,48 @@ export class PostProcessingPage {
   readonly cancelButton: Locator;
   readonly createPromptSubmitButton: Locator;
 
-  // Disabled notice (shown when post-processing is off)
-  readonly disabledNotice: Locator;
-
-  // Sidebar locator
-  readonly sidebar: Locator;
-
   constructor(page: Page) {
     this.page = page;
 
-    // Sidebar
-    this.sidebar = page.locator(".flex.flex-col.w-40");
+    // Provider dropdown - use accessible role
+    this.providerDropdown = page.getByRole("combobox", { name: /provider/i });
 
-    // API Settings group - contains provider, api key, base url, model
-    this.apiSettingsGroup = page.locator("text=API (OpenAI Compatible)").locator("..");
+    // API Key input - use label association
+    this.apiKeyInput = page.getByLabel(/api key/i);
 
-    // Provider dropdown
-    this.providerDropdownButton = page.locator("button").filter({ hasText: /OpenAI|Ollama|Custom|Apple Intelligence/ }).first();
-    this.providerDropdown = page.locator(".relative").filter({ has: this.providerDropdownButton });
-
-    // API Key input (password field)
-    this.apiKeyInput = page.locator('input[type="password"]');
-
-    // Base URL input (only visible for custom provider)
-    this.baseUrlInput = page.locator('input[placeholder*="https://"]');
-
-    // Model select (combobox-style select)
-    this.modelSelect = page.locator('[class*="react-select"]').first();
+    // Base URL input - use label association
+    this.baseUrlInput = page.getByLabel(/base url/i);
 
     // Model refresh button
     this.modelRefreshButton = page.getByRole("button", { name: /refresh/i });
 
-    // Prompts Settings group
-    this.promptsSettingsGroup = page.locator("text=Prompt").locator("..").first();
-
-    // Prompt selector dropdown
-    this.promptSelector = page.locator("text=Selected Prompt").locator("..").locator("button").first();
-
     // Create new prompt button
-    this.createPromptButton = page.getByRole("button", { name: /create new prompt/i });
+    this.createPromptButton = page.getByRole("button", {
+      name: /create new prompt/i,
+    });
 
     // Prompt editing fields
-    this.promptLabelInput = page.locator("text=Prompt Label").locator("..").locator("input");
-    this.promptTextarea = page.locator("textarea");
+    this.promptLabelInput = page.getByLabel(/prompt label/i);
+    this.promptTextarea = page.getByRole("textbox", { name: /instruction/i });
 
     // Action buttons
-    this.updatePromptButton = page.getByRole("button", { name: /update prompt/i });
-    this.deletePromptButton = page.getByRole("button", { name: /delete prompt/i });
+    this.updatePromptButton = page.getByRole("button", {
+      name: /update prompt/i,
+    });
+    this.deletePromptButton = page.getByRole("button", {
+      name: /delete prompt/i,
+    });
     this.cancelButton = page.getByRole("button", { name: /cancel/i });
-    this.createPromptSubmitButton = page.getByRole("button", { name: /^create prompt$/i });
-
-    // Disabled notice
-    this.disabledNotice = page.locator("text=Post processing is currently disabled");
+    this.createPromptSubmitButton = page.getByRole("button", {
+      name: /^create prompt$/i,
+    });
   }
 
-  /** Check if the main app (with sidebar) is visible, vs onboarding flow */
+  /** Check if the main app (with sidebar navigation) is visible, vs onboarding flow */
   async isMainAppVisible(): Promise<boolean> {
     try {
-      // The sidebar is only present when not in onboarding
-      return await this.sidebar.isVisible({ timeout: 2000 });
+      const nav = this.page.getByRole("navigation");
+      return await nav.isVisible({ timeout: 2000 });
     } catch {
       return false;
     }
@@ -96,35 +74,30 @@ export class PostProcessingPage {
   /** Navigate to the Post Processing section via sidebar */
   async goto() {
     await this.page.goto("/");
-    // Click on Post Process in the sidebar (only visible if post_process_enabled)
-    await this.page.locator("text=Post Process").click();
+    await this.page.getByRole("link", { name: /post process/i }).click();
   }
 
-  /** Navigate to Advanced Settings (only works if main app is visible) */
+  /** Navigate to Advanced Settings */
   async gotoAdvanced() {
     await this.page.goto("/");
-    // Wait for either sidebar or detect onboarding
     const isMainApp = await this.isMainAppVisible();
     if (!isMainApp) {
-      throw new Error("Cannot navigate to Advanced - app is in onboarding flow");
+      throw new Error(
+        "Cannot navigate to Advanced - app is in onboarding flow",
+      );
     }
-    await this.sidebar.locator("text=Advanced").click();
+    await this.page.getByRole("link", { name: /advanced/i }).click();
   }
 
   /** Check if the post-processing section is visible in sidebar */
   async isPostProcessingSectionVisible(): Promise<boolean> {
-    const sidebarItem = this.page.locator(".flex.flex-col.w-40").locator("text=Post Process");
+    const sidebarItem = this.page.getByRole("link", { name: /post process/i });
     return sidebarItem.isVisible();
   }
 
-  /** Get the experimental settings group in Advanced Settings */
-  getExperimentalGroup() {
-    return this.page.locator("text=Experimental").locator("..");
-  }
-
-  /** Get the post-processing toggle in experimental group */
+  /** Get the post-processing toggle switch */
   getPostProcessingToggle() {
-    return this.page.locator("text=Post Processing").locator("..").locator('input[type="checkbox"]');
+    return this.page.getByRole("switch", { name: /post processing/i });
   }
 
   /** Toggle post-processing on/off */
@@ -141,13 +114,13 @@ export class PostProcessingPage {
 
   /** Select a provider from the dropdown */
   async selectProvider(providerName: string) {
-    await this.providerDropdownButton.click();
-    await this.page.locator(`button:has-text("${providerName}")`).click();
+    await this.providerDropdown.click();
+    await this.page.getByRole("option", { name: providerName }).click();
   }
 
   /** Get the current selected provider text */
   async getSelectedProvider(): Promise<string> {
-    return (await this.providerDropdownButton.textContent()) || "";
+    return (await this.providerDropdown.textContent()) || "";
   }
 
   /** Enter API key */
@@ -183,9 +156,8 @@ export class PostProcessingPage {
 
   /** Get available provider options */
   async getProviderOptions(): Promise<string[]> {
-    await this.providerDropdownButton.click();
-    const options = await this.page.locator(".absolute.top-full button").allTextContents();
-    // Close dropdown
+    await this.providerDropdown.click();
+    const options = await this.page.getByRole("option").allTextContents();
     await this.page.keyboard.press("Escape");
     return options;
   }

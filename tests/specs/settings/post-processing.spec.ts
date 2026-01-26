@@ -8,227 +8,260 @@ test.describe("Post-Processing Settings", () => {
     postProcessingPage = new PostProcessingPage(page);
   });
 
-  test.describe("Experimental Feature Gate", () => {
+  test.describe("Feature Toggle Behavior", () => {
     test("post-processing section is hidden by default", async ({ page }) => {
       await page.goto("/");
-      // Post Process should not be visible in sidebar by default
-      const isVisible = await postProcessingPage.isPostProcessingSectionVisible();
+
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
       expect(isVisible).toBe(false);
     });
 
-    test("post-processing toggle is in experimental group", async ({ page }) => {
+    test("enabling post-processing reveals section in sidebar", async ({
+      page,
+    }) => {
       await page.goto("/");
 
-      // Skip if app is in onboarding mode
       const isMainApp = await postProcessingPage.isMainAppVisible();
       if (!isMainApp) {
-        test.skip(true, "App is in onboarding flow - skipping Advanced settings test");
+        test.skip(true, "App is in onboarding flow");
         return;
       }
 
-      // Navigate to Advanced settings
       await postProcessingPage.gotoAdvanced();
 
-      // Check if experimental section exists (requires experimental_enabled first)
-      const experimentalGroup = postProcessingPage.getExperimentalGroup();
-      const groupVisible = await experimentalGroup.isVisible().catch(() => false);
+      // Assert: Post Process section not visible initially
+      await expect(
+        page.getByRole("link", { name: /post process/i }),
+      ).not.toBeVisible();
 
-      if (groupVisible) {
-        // Verify post-processing toggle exists in this group
-        const toggle = postProcessingPage.getPostProcessingToggle();
-        await expect(toggle).toBeVisible();
+      // Act: Enable post-processing
+      const toggle = postProcessingPage.getPostProcessingToggle();
+      const toggleVisible = await toggle.isVisible().catch(() => false);
+
+      if (toggleVisible) {
+        await toggle.click();
+
+        // Assert: Post Process section now visible in sidebar
+        await expect(
+          page.getByRole("link", { name: /post process/i }),
+        ).toBeVisible();
+      }
+    });
+
+    test("disabling post-processing hides section from sidebar", async ({
+      page,
+    }) => {
+      await page.goto("/");
+
+      const isMainApp = await postProcessingPage.isMainAppVisible();
+      if (!isMainApp) {
+        test.skip(true, "App is in onboarding flow");
+        return;
+      }
+
+      await postProcessingPage.gotoAdvanced();
+
+      const toggle = postProcessingPage.getPostProcessingToggle();
+      const toggleVisible = await toggle.isVisible().catch(() => false);
+
+      if (toggleVisible) {
+        // Ensure enabled first
+        const isEnabled = await toggle.isChecked();
+        if (!isEnabled) {
+          await toggle.click();
+        }
+
+        // Assert: Section visible when enabled
+        await expect(
+          page.getByRole("link", { name: /post process/i }),
+        ).toBeVisible();
+
+        // Act: Disable post-processing
+        await toggle.click();
+
+        // Assert: Section hidden when disabled
+        await expect(
+          page.getByRole("link", { name: /post process/i }),
+        ).not.toBeVisible();
       }
     });
   });
 
-  test.describe("Provider Configuration", () => {
-    test.beforeEach(async ({ page }) => {
-      // Enable experimental and post-processing to access the section
-      // This would need proper setup - for now we test the component structure
-      await page.goto("/");
-    });
-
+  test.describe("Provider Configuration Behavior", () => {
     test("provider selector shows available options", async ({ page }) => {
-      // Navigate to post-processing if visible, otherwise check component exists
-      const isVisible = await postProcessingPage.isPostProcessingSectionVisible();
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
 
       if (isVisible) {
         await postProcessingPage.goto();
 
-        // Provider dropdown should be visible
-        await expect(postProcessingPage.providerDropdownButton).toBeVisible();
-
-        // Should show provider options when clicked
+        // Act: Open provider dropdown
         const options = await postProcessingPage.getProviderOptions();
-        expect(options.length).toBeGreaterThan(0);
 
-        // Common providers should be available
+        // Assert: Multiple providers available
+        expect(options.length).toBeGreaterThan(0);
         const optionsText = options.join(" ").toLowerCase();
         expect(optionsText).toMatch(/openai|ollama|custom/i);
       }
     });
 
-    test("API key input is masked (password type)", async ({ page }) => {
-      const isVisible = await postProcessingPage.isPostProcessingSectionVisible();
-
-      if (isVisible) {
-        await postProcessingPage.goto();
-
-        // API key field should be a password input
-        const isMasked = await postProcessingPage.isApiKeyMasked();
-        expect(isMasked).toBe(true);
-      }
-    });
-
-    test("base URL field only visible for custom provider", async ({ page }) => {
-      const isVisible = await postProcessingPage.isPostProcessingSectionVisible();
-
-      if (isVisible) {
-        await postProcessingPage.goto();
-
-        // Select OpenAI - base URL should be hidden
-        await postProcessingPage.selectProvider("OpenAI");
-        let baseUrlVisible = await postProcessingPage.isBaseUrlVisible();
-        expect(baseUrlVisible).toBe(false);
-
-        // Select Custom - base URL should be visible
-        await postProcessingPage.selectProvider("Custom");
-        baseUrlVisible = await postProcessingPage.isBaseUrlVisible();
-        expect(baseUrlVisible).toBe(true);
-      }
-    });
-  });
-
-  test.describe("Disabled State", () => {
-    test("shows disabled notice when post-processing is off", async ({ page }) => {
-      // When post-processing is disabled, navigating to the section
-      // (if possible) should show a disabled notice
+    test("API key input is masked", async ({ page }) => {
       await page.goto("/");
 
-      // The sidebar item won't be visible if disabled
-      const sidebarVisible = await postProcessingPage.isPostProcessingSectionVisible();
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
 
-      // If we somehow got to the post-processing page while disabled,
-      // it should show the disabled notice
-      if (!sidebarVisible) {
-        // This is expected - post-processing section is hidden when disabled
-        expect(sidebarVisible).toBe(false);
+      if (isVisible) {
+        await postProcessingPage.goto();
+
+        // Assert: API key input is password type
+        const apiKeyInput = page.getByLabel(/api key/i);
+        await expect(apiKeyInput).toHaveAttribute("type", "password");
+      }
+    });
+
+    test("selecting custom provider reveals base URL field", async ({
+      page,
+    }) => {
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
+
+      if (isVisible) {
+        await postProcessingPage.goto();
+
+        // Assert: Base URL hidden for standard provider
+        await postProcessingPage.selectProvider("OpenAI");
+        await expect(page.getByLabel(/base url/i)).not.toBeVisible();
+
+        // Act: Select custom provider
+        await postProcessingPage.selectProvider("Custom");
+
+        // Assert: Base URL now visible
+        await expect(page.getByLabel(/base url/i)).toBeVisible();
+      }
+    });
+
+    test("selecting standard provider hides base URL field", async ({
+      page,
+    }) => {
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
+
+      if (isVisible) {
+        await postProcessingPage.goto();
+
+        // Start with custom provider (base URL visible)
+        await postProcessingPage.selectProvider("Custom");
+        await expect(page.getByLabel(/base url/i)).toBeVisible();
+
+        // Act: Switch to standard provider
+        await postProcessingPage.selectProvider("OpenAI");
+
+        // Assert: Base URL hidden
+        await expect(page.getByLabel(/base url/i)).not.toBeVisible();
       }
     });
   });
 
-  test.describe("UI Components", () => {
-    test("page structure includes API and Prompts groups", async ({ page }) => {
-      const isVisible = await postProcessingPage.isPostProcessingSectionVisible();
+  test.describe("Prompt Management Behavior", () => {
+    test("create prompt button opens prompt editor", async ({ page }) => {
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
 
       if (isVisible) {
         await postProcessingPage.goto();
 
-        // Should have API settings group
-        await expect(page.locator("text=API (OpenAI Compatible)")).toBeVisible();
+        // Assert: Editor fields not visible initially
+        await expect(page.getByLabel(/prompt label/i)).not.toBeVisible();
 
-        // Should have Prompts group
-        await expect(page.locator("text=Prompt")).toBeVisible();
-      }
-    });
+        // Act: Click create new prompt
+        await postProcessingPage.createPromptButton.click();
 
-    test("model select has refresh button", async ({ page }) => {
-      const isVisible = await postProcessingPage.isPostProcessingSectionVisible();
-
-      if (isVisible) {
-        await postProcessingPage.goto();
-
-        // Model section should have a refresh button
-        await expect(postProcessingPage.modelRefreshButton).toBeVisible();
-      }
-    });
-
-    test("create prompt button exists", async ({ page }) => {
-      const isVisible = await postProcessingPage.isPostProcessingSectionVisible();
-
-      if (isVisible) {
-        await postProcessingPage.goto();
-
-        await expect(postProcessingPage.createPromptButton).toBeVisible();
+        // Assert: Editor fields now visible
+        await expect(page.getByLabel(/prompt label/i)).toBeVisible();
+        await expect(
+          page.getByRole("textbox", { name: /instruction/i }),
+        ).toBeVisible();
       }
     });
 
     test("prompt textarea accepts custom instructions", async ({ page }) => {
-      const isVisible = await postProcessingPage.isPostProcessingSectionVisible();
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
 
       if (isVisible) {
         await postProcessingPage.goto();
 
-        // Click create new prompt
         await postProcessingPage.createPromptButton.click();
 
-        // Textarea should be visible and editable
-        await expect(postProcessingPage.promptTextarea).toBeVisible();
+        // Act: Fill in prompt text
+        const textarea = page.getByRole("textbox", { name: /instruction/i });
+        await textarea.fill("Improve grammar: ${output}");
 
-        // Fill in some text
-        await postProcessingPage.promptTextarea.fill("Improve grammar: ${output}");
+        // Assert: Text was entered
+        await expect(textarea).toHaveValue(/Improve grammar/);
+      }
+    });
 
-        // Verify text was entered
-        const value = await postProcessingPage.promptTextarea.inputValue();
-        expect(value).toContain("Improve grammar");
+    test("cancel button closes prompt editor without saving", async ({
+      page,
+    }) => {
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
+
+      if (isVisible) {
+        await postProcessingPage.goto();
+
+        await postProcessingPage.createPromptButton.click();
+
+        // Fill in some data
+        await page.getByLabel(/prompt label/i).fill("Test Prompt");
+
+        // Act: Click cancel
+        await postProcessingPage.cancelButton.click();
+
+        // Assert: Editor closed
+        await expect(page.getByLabel(/prompt label/i)).not.toBeVisible();
       }
     });
   });
 
-  test.describe("Integration with Advanced Settings", () => {
-    test("experimental group contains post-processing toggle", async ({ page }) => {
-      await page.goto("/");
+  test.describe("UI Component Presence", () => {
+    test("post-processing page has API settings section", async ({ page }) => {
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
 
-      // Skip if app is in onboarding mode
-      const isMainApp = await postProcessingPage.isMainAppVisible();
-      if (!isMainApp) {
-        test.skip(true, "App is in onboarding flow - skipping Advanced settings test");
-        return;
-      }
+      if (isVisible) {
+        await postProcessingPage.goto();
 
-      await postProcessingPage.gotoAdvanced();
-
-      // Look for experimental group (may need experimental_enabled first)
-      const experimentalHeader = page.locator("text=Experimental");
-      const isExperimentalVisible = await experimentalHeader.isVisible().catch(() => false);
-
-      if (isExperimentalVisible) {
-        // Post Processing toggle should be in this group
-        const postProcessToggle = page.locator("text=Post Processing").locator("..");
-        await expect(postProcessToggle).toBeVisible();
+        await expect(page.getByRole("heading", { name: /api/i })).toBeVisible();
       }
     });
 
-    test("enabling post-processing shows section in sidebar", async ({ page }) => {
-      await page.goto("/");
+    test("post-processing page has prompts section", async ({ page }) => {
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
 
-      // Skip if app is in onboarding mode
-      const isMainApp = await postProcessingPage.isMainAppVisible();
-      if (!isMainApp) {
-        test.skip(true, "App is in onboarding flow - skipping Advanced settings test");
-        return;
+      if (isVisible) {
+        await postProcessingPage.goto();
+
+        await expect(
+          page.getByRole("heading", { name: /prompt/i }),
+        ).toBeVisible();
       }
+    });
 
-      await postProcessingPage.gotoAdvanced();
+    test("model select has refresh button", async ({ page }) => {
+      const isVisible =
+        await postProcessingPage.isPostProcessingSectionVisible();
 
-      // Check if experimental group is visible
-      const experimentalHeader = page.locator("text=Experimental");
-      const isExperimentalVisible = await experimentalHeader.isVisible().catch(() => false);
+      if (isVisible) {
+        await postProcessingPage.goto();
 
-      if (isExperimentalVisible) {
-        // Enable post-processing
-        const toggle = postProcessingPage.getPostProcessingToggle();
-        const isEnabled = await toggle.isChecked();
-
-        if (!isEnabled) {
-          await toggle.click();
-          // Wait for state to update
-          await page.waitForTimeout(500);
-        }
-
-        // Post Process section should now appear in sidebar
-        const sidebarVisible = await postProcessingPage.isPostProcessingSectionVisible();
-        expect(sidebarVisible).toBe(true);
+        await expect(
+          page.getByRole("button", { name: /refresh/i }),
+        ).toBeVisible();
       }
     });
   });
