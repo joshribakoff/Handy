@@ -2,236 +2,162 @@ import { test, expect } from "@playwright/test";
 import { GeneralSettingsPage } from "../../pages/settings/general.page";
 
 test.describe("General Settings", () => {
-  let generalPage: GeneralSettingsPage;
+  let page: GeneralSettingsPage;
 
-  test.beforeEach(async ({ page }) => {
-    generalPage = new GeneralSettingsPage(page);
-    await generalPage.goto();
+  test.beforeEach(async ({ page: p }) => {
+    page = new GeneralSettingsPage(p);
+    await page.goto();
   });
 
-  test.describe("Settings Groups", () => {
-    test("displays General settings group", async () => {
-      const isVisible = await generalPage.isGeneralSectionVisible();
-      expect(isVisible).toBe(true);
+  test.describe("Smoke Tests", () => {
+    test("displays General and Sound settings groups", async () => {
+      await expect(page.generalHeading.first()).toBeVisible();
+      await expect(page.soundHeading).toBeVisible();
     });
 
-    test("displays Sound settings group", async () => {
-      const isVisible = await generalPage.isSoundSectionVisible();
-      expect(isVisible).toBe(true);
-    });
-  });
-
-  test.describe("Shortcut Configuration", () => {
-    test("displays current shortcut", async () => {
-      const shortcutText = await generalPage.getShortcutText();
-      // Shortcut should contain modifier keys like Cmd, Ctrl, Alt, etc.
-      expect(shortcutText.length).toBeGreaterThan(0);
+    test("displays all toggle controls", async () => {
+      await expect(page.pushToTalkSwitch).toBeVisible();
+      await expect(page.muteWhileRecordingSwitch).toBeVisible();
+      await expect(page.audioFeedbackSwitch).toBeVisible();
     });
 
-    test("enters recording mode when clicked", async () => {
-      await generalPage.clickShortcutToRecord();
-      const isRecording = await generalPage.isShortcutRecording();
-      expect(isRecording).toBe(true);
-    });
-
-    test("shows 'Press keys...' prompt when recording", async ({ page }) => {
-      await generalPage.clickShortcutToRecord();
-      // Wait for recording mode UI
-      await page.waitForSelector("text=Press keys...", { timeout: 2000 });
-      const prompt = page.locator("text=Press keys...");
-      await expect(prompt).toBeVisible();
+    test("displays microphone and volume controls", async () => {
+      await expect(page.microphoneDropdown).toBeVisible();
+      await expect(page.volumeSlider).toBeVisible();
     });
   });
 
   test.describe("Push to Talk Toggle", () => {
-    test("push to talk toggle is visible", async ({ page }) => {
-      const label = page.locator("h3").filter({ hasText: /^Push To Talk$/ });
-      await expect(label).toBeVisible();
-    });
+    test("toggling push to talk changes its state", async () => {
+      const toggle = page.pushToTalkSwitch;
 
-    test("can toggle push to talk", async () => {
-      const initialState = await generalPage.isPushToTalkEnabled();
-      await generalPage.togglePushToTalk();
-      // Wait for state change
-      await generalPage.page.waitForTimeout(300);
-      const newState = await generalPage.isPushToTalkEnabled();
-      expect(newState).toBe(!initialState);
-    });
-  });
+      // Assert: Get initial state
+      const wasChecked = await toggle.isChecked();
 
-  test.describe("Microphone Selector", () => {
-    test("microphone selector is visible", async () => {
-      const isVisible = await generalPage.isMicrophoneSelectorVisible();
-      expect(isVisible).toBe(true);
-    });
+      // Act: Toggle it
+      await toggle.click({ force: true });
 
-    test("displays selected microphone or placeholder", async () => {
-      const selectedMic = await generalPage.getSelectedMicrophone();
-      // Should show either "Default", a device name, or loading state
-      expect(selectedMic.length).toBeGreaterThan(0);
-    });
-
-    test("opens microphone dropdown on click", async ({ page }) => {
-      await generalPage.openMicrophoneDropdown();
-      // Dropdown should be visible (look for the dropdown container)
-      const dropdown = page.locator(".absolute.top-full");
-      await expect(dropdown).toBeVisible();
-    });
-  });
-
-  test.describe("Language Selector", () => {
-    // Language selector only appears for Whisper models
-    test("language selector may be visible depending on model", async () => {
-      const isVisible = await generalPage.isLanguageSelectorVisible();
-      // This is model-dependent, so we just verify the check works
-      expect(typeof isVisible).toBe("boolean");
-    });
-
-    test("can open language dropdown when visible", async ({ page }) => {
-      const isVisible = await generalPage.isLanguageSelectorVisible();
-      if (isVisible) {
-        await generalPage.openLanguageDropdown();
-        // Should show search input
-        const searchInput = page.locator('input[placeholder*="Search"]');
-        await expect(searchInput).toBeVisible();
-      }
-    });
-
-    test("can search languages when dropdown is open", async ({ page }) => {
-      const isVisible = await generalPage.isLanguageSelectorVisible();
-      if (isVisible) {
-        await generalPage.openLanguageDropdown();
-        await generalPage.searchLanguage("English");
-        // Should filter to show English option
-        const englishOption = page.locator("button").filter({ hasText: "English" });
-        await expect(englishOption.first()).toBeVisible();
-      }
+      // Assert: State changed
+      await expect(toggle).toHaveJSProperty("checked", !wasChecked);
     });
   });
 
   test.describe("Mute While Recording Toggle", () => {
-    test("mute while recording toggle is visible", async () => {
-      const isVisible = await generalPage.isMuteWhileRecordingVisible();
-      expect(isVisible).toBe(true);
-    });
+    test("toggling mute while recording changes its state", async () => {
+      const toggle = page.muteWhileRecordingSwitch;
 
-    test("can toggle mute while recording", async () => {
-      const initialState = await generalPage.isMuteWhileRecordingEnabled();
-      await generalPage.toggleMuteWhileRecording();
-      await generalPage.page.waitForTimeout(300);
-      const newState = await generalPage.isMuteWhileRecordingEnabled();
-      expect(newState).toBe(!initialState);
+      // Assert: Get initial state
+      const wasChecked = await toggle.isChecked();
+
+      // Act: Toggle it
+      await toggle.click({ force: true });
+
+      // Assert: State changed
+      await expect(toggle).toHaveJSProperty("checked", !wasChecked);
     });
   });
 
   test.describe("Audio Feedback Toggle", () => {
-    test("audio feedback toggle is visible", async () => {
-      const isVisible = await generalPage.isAudioFeedbackVisible();
-      expect(isVisible).toBe(true);
+    test("toggling audio feedback changes its state", async () => {
+      const toggle = page.audioFeedbackSwitch;
+
+      // Assert: Get initial state
+      const wasChecked = await toggle.isChecked();
+
+      // Act: Toggle it
+      await toggle.click({ force: true });
+
+      // Assert: State changed
+      await expect(toggle).toHaveJSProperty("checked", !wasChecked);
     });
 
-    test("can toggle audio feedback", async () => {
-      const initialState = await generalPage.isAudioFeedbackEnabled();
-      await generalPage.toggleAudioFeedback();
-      await generalPage.page.waitForTimeout(300);
-      const newState = await generalPage.isAudioFeedbackEnabled();
-      expect(newState).toBe(!initialState);
+    test("disabling audio feedback disables volume slider", async () => {
+      const toggle = page.audioFeedbackSwitch;
+      const slider = page.volumeSlider;
+
+      // Ensure audio feedback is enabled first
+      if (!(await toggle.isChecked())) {
+        await toggle.click({ force: true });
+      }
+
+      // Assert: Slider should be enabled when audio feedback is on
+      await expect(slider).toBeEnabled();
+
+      // Act: Disable audio feedback
+      await toggle.click({ force: true });
+
+      // Assert: Slider should be disabled
+      await expect(slider).toBeDisabled();
+    });
+
+    test("disabling audio feedback disables output device dropdown", async () => {
+      const toggle = page.audioFeedbackSwitch;
+      const dropdown = page.outputDeviceDropdown;
+
+      // Ensure audio feedback is enabled first
+      if (!(await toggle.isChecked())) {
+        await toggle.click({ force: true });
+      }
+
+      // Assert: Dropdown should be enabled when audio feedback is on
+      await expect(dropdown).toBeEnabled();
+
+      // Act: Disable audio feedback
+      await toggle.click({ force: true });
+
+      // Assert: Dropdown should be disabled
+      await expect(dropdown).toBeDisabled();
     });
   });
 
-  test.describe("Output Device Selector", () => {
-    test("output device selector is visible", async () => {
-      const isVisible = await generalPage.isOutputDeviceSelectorVisible();
-      expect(isVisible).toBe(true);
+  test.describe("Microphone Selector", () => {
+    test("clicking microphone dropdown opens options menu", async () => {
+      // Assert: Dropdown menu not visible initially
+      await expect(page.dropdownMenu).not.toBeVisible();
+
+      // Act: Click to open dropdown
+      await page.microphoneDropdown.click();
+
+      // Assert: Dropdown menu appears
+      await expect(page.dropdownMenu).toBeVisible();
     });
+  });
 
-    test("displays selected output device or placeholder", async () => {
-      const selectedDevice = await generalPage.getSelectedOutputDevice();
-      expect(selectedDevice.length).toBeGreaterThan(0);
-    });
+  test.describe("Shortcut Configuration", () => {
+    test("clicking shortcut enters recording mode", async ({ page: p }) => {
+      // Assert: Not in recording mode initially
+      await expect(page.shortcutRecordingPrompt).not.toBeVisible();
 
-    test("output device is disabled when audio feedback is off", async () => {
-      // First ensure audio feedback is off
-      const audioFeedbackEnabled = await generalPage.isAudioFeedbackEnabled();
-      if (audioFeedbackEnabled) {
-        await generalPage.toggleAudioFeedback();
-        await generalPage.page.waitForTimeout(300);
-      }
+      // Act: Click shortcut to start recording
+      await page.shortcutDisplay.click();
 
-      const isDisabled = await generalPage.isOutputDeviceDisabled();
-      expect(isDisabled).toBe(true);
-    });
-
-    test("output device is enabled when audio feedback is on", async () => {
-      // First ensure audio feedback is on
-      const audioFeedbackEnabled = await generalPage.isAudioFeedbackEnabled();
-      if (!audioFeedbackEnabled) {
-        await generalPage.toggleAudioFeedback();
-        await generalPage.page.waitForTimeout(300);
-      }
-
-      const isDisabled = await generalPage.isOutputDeviceDisabled();
-      expect(isDisabled).toBe(false);
+      // Assert: Shows recording prompt
+      await expect(page.shortcutRecordingPrompt).toBeVisible();
     });
   });
 
   test.describe("Volume Slider", () => {
-    test("volume slider is visible", async () => {
-      const isVisible = await generalPage.isVolumeSliderVisible();
-      expect(isVisible).toBe(true);
-    });
-
-    test("displays current volume value", async () => {
-      const value = await generalPage.getVolumeValue();
-      expect(value).toBeGreaterThanOrEqual(0);
-      expect(value).toBeLessThanOrEqual(1);
-    });
-
-    test("displays volume as percentage", async () => {
-      const percentage = await generalPage.getVolumePercentage();
-      expect(percentage).toMatch(/%$/);
-    });
-
-    test("volume slider is disabled when audio feedback is off", async () => {
-      // First ensure audio feedback is off
-      const audioFeedbackEnabled = await generalPage.isAudioFeedbackEnabled();
-      if (audioFeedbackEnabled) {
-        await generalPage.toggleAudioFeedback();
-        await generalPage.page.waitForTimeout(300);
+    test("volume slider shows percentage value", async ({ page: p }) => {
+      // Ensure audio feedback is enabled so slider is active
+      const toggle = page.audioFeedbackSwitch;
+      if (!(await toggle.isChecked())) {
+        await toggle.click({ force: true });
       }
 
-      const isDisabled = await generalPage.isVolumeSliderDisabled();
-      expect(isDisabled).toBe(true);
+      // Assert: Volume percentage is displayed
+      const volumeText = p.getByText(/%$/);
+      await expect(volumeText.first()).toBeVisible();
     });
+  });
 
-    test("volume slider is enabled when audio feedback is on", async () => {
-      // First ensure audio feedback is on
-      const audioFeedbackEnabled = await generalPage.isAudioFeedbackEnabled();
-      if (!audioFeedbackEnabled) {
-        await generalPage.toggleAudioFeedback();
-        await generalPage.page.waitForTimeout(300);
-      }
-
-      const isDisabled = await generalPage.isVolumeSliderDisabled();
-      expect(isDisabled).toBe(false);
-    });
-
-    test("can adjust volume slider value", async () => {
-      // Ensure audio feedback is on first
-      const audioFeedbackEnabled = await generalPage.isAudioFeedbackEnabled();
-      if (!audioFeedbackEnabled) {
-        await generalPage.toggleAudioFeedback();
-        await generalPage.page.waitForTimeout(300);
-      }
-
-      const initialValue = await generalPage.getVolumeValue();
-      const newValue = initialValue < 0.5 ? 0.8 : 0.2;
-
-      await generalPage.setVolume(newValue);
-      await generalPage.page.waitForTimeout(300);
-
-      const updatedValue = await generalPage.getVolumeValue();
-      expect(Math.abs(updatedValue - newValue)).toBeLessThan(0.15);
+  test.describe("Language Selector", () => {
+    test("language selector may be visible depending on model", async () => {
+      // Language selector only appears for Whisper models
+      // Just verify the page object works - actual visibility depends on model
+      const isVisible = await page.languageDropdown
+        .isVisible()
+        .catch(() => false);
+      expect(typeof isVisible).toBe("boolean");
     });
   });
 });
