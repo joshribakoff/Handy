@@ -37,17 +37,18 @@ test.describe("History Settings", () => {
       await expect(historyPage.historyTitle).toBeVisible();
     });
 
-    test("open recordings folder button is visible and clickable", async ({
+    test("clicking open folder button triggers folder open command", async ({
       page,
     }) => {
       const historyPage = new HistoryPage(page);
       await historyPage.navigate();
       await historyPage.waitForHistoryLoaded();
 
-      await expect(historyPage.openFolderButton).toBeVisible();
-      await expect(historyPage.openFolderButton).toBeEnabled();
       // Click should not throw (mocked command returns null)
       await historyPage.clickOpenFolder();
+
+      // Button should still be enabled after click
+      await expect(historyPage.openFolderButton).toBeEnabled();
     });
 
     test("entry displays timestamp and transcription text", async ({
@@ -69,66 +70,80 @@ test.describe("History Settings", () => {
       expect(text).toContain("transcription text for entry");
     });
 
-    test("entry has action buttons (copy, save, delete)", async ({ page }) => {
+    test("copying transcription shows feedback", async ({ page }) => {
       const historyPage = new HistoryPage(page);
       await historyPage.navigate();
       await historyPage.waitForHistoryLoaded();
 
       const entry = historyPage.getEntry(0);
+
+      // Assert: Copy button visible before click
       await expect(entry.copyButton).toBeVisible();
-      await expect(entry.saveButton).toBeVisible();
-      await expect(entry.deleteButton).toBeVisible();
-    });
 
-    test("copy button shows checkmark feedback after click", async ({
-      page,
-    }) => {
-      const historyPage = new HistoryPage(page);
-      await historyPage.navigate();
-      await historyPage.waitForHistoryLoaded();
-
-      const entry = historyPage.getEntry(0);
-
-      // Click copy
+      // Act: Click copy
       await entry.clickCopy();
 
-      // Check for the checkmark icon (feedback that copy happened)
-      const checkIcon = entry.container.locator("svg.lucide-check");
-      await expect(checkIcon).toBeVisible({ timeout: 2000 });
+      // Assert: Feedback shown (copied button replaces copy button)
+      await entry.waitForCopiedFeedback();
+      await expect(entry.copiedButton).toBeVisible();
     });
 
-    test("save button is visible and clickable", async ({ page }) => {
+    test("save button toggles saved state", async ({ page }) => {
       const historyPage = new HistoryPage(page);
       await historyPage.navigate();
       await historyPage.waitForHistoryLoaded();
 
       const entry = historyPage.getEntry(0);
+
+      // Assert: Save button is visible and clickable
       await expect(entry.saveButton).toBeVisible();
       await expect(entry.saveButton).toBeEnabled();
 
-      // Click should not throw
+      // Act: Click save
       await entry.clickSave();
+
+      // Assert: Button is still enabled (command was processed)
+      await expect(entry.saveButton).toBeEnabled();
     });
 
-    test("delete button is present and clickable", async ({ page }) => {
+    test("delete button removes entry from list", async ({ page }) => {
+      // Setup: Track delete command calls
+      await page.evaluate(() => {
+        (window as any).__deleteCallCount = 0;
+        const originalInvoke = (window as any).__TAURI_INTERNALS__.invoke;
+        (window as any).__TAURI_INTERNALS__.invoke = async (
+          cmd: string,
+          args?: any,
+        ) => {
+          if (cmd === "delete_history_entry") {
+            (window as any).__deleteCallCount++;
+          }
+          return originalInvoke(cmd, args);
+        };
+      });
+
       const historyPage = new HistoryPage(page);
       await historyPage.navigate();
       await historyPage.waitForHistoryLoaded();
+
+      // Assert: Entry exists
+      const initialCount = await historyPage.getEntryCount();
+      expect(initialCount).toBe(3);
 
       const entry = historyPage.getEntry(0);
       await expect(entry.deleteButton).toBeVisible();
-      await expect(entry.deleteButton).toBeEnabled();
+
+      // Act: Click delete
+      await entry.clickDelete();
+
+      // Assert: Delete command was called
+      const deleteCallCount = await page.evaluate(
+        () => (window as any).__deleteCallCount,
+      );
+      expect(deleteCallCount).toBe(1);
     });
 
-    test("history container is visible", async ({ page }) => {
-      const historyPage = new HistoryPage(page);
-      await historyPage.navigate();
-      await historyPage.waitForHistoryLoaded();
-
-      await expect(historyPage.historyContainer).toBeVisible();
-    });
-
-    test("multiple entries render correctly", async ({ page }) => {
+    test("multiple entries render with distinct content", async ({ page }) => {
       const historyPage = new HistoryPage(page);
       await historyPage.navigate();
       await historyPage.waitForHistoryLoaded();

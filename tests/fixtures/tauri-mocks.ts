@@ -21,7 +21,7 @@ export interface TauriMockConfig {
  */
 export async function setupTauriMocks(
   page: Page,
-  config: TauriMockConfig = {}
+  config: TauriMockConfig = {},
 ): Promise<void> {
   const { hasModels = true, historyEntries = [] } = config;
 
@@ -55,9 +55,13 @@ export async function setupTauriMocks(
             case "get_audio_file_path":
               return "/mock/audio/path.wav";
             case "get_available_microphones":
-              return [{ index: "0", name: "Default Microphone", is_default: true }];
+              return [
+                { index: "0", name: "Default Microphone", is_default: true },
+              ];
             case "get_available_output_devices":
-              return [{ index: "0", name: "Default Speaker", is_default: true }];
+              return [
+                { index: "0", name: "Default Speaker", is_default: true },
+              ];
             case "get_selected_microphone":
               return "Default Microphone";
             case "get_selected_output_device":
@@ -88,7 +92,7 @@ export async function setupTauriMocks(
         },
       };
     },
-    { hasModels, historyEntries }
+    { hasModels, historyEntries },
   );
 }
 

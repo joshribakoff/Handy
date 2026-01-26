@@ -10,11 +10,11 @@ export class SidebarPage extends BasePage {
 
   constructor(page: Page) {
     super(page);
-    this.sidebar = page.locator('[class*="border-r"]').first();
-    this.generalSection = page.getByText("General").first();
-    this.advancedSection = page.getByText("Advanced").first();
-    this.historySection = page.getByText("History").first();
-    this.aboutSection = page.getByText("About").first();
+    this.sidebar = page.getByRole("navigation");
+    this.generalSection = page.getByRole("button", { name: /general/i });
+    this.advancedSection = page.getByRole("button", { name: /advanced/i });
+    this.historySection = page.getByRole("button", { name: /history/i });
+    this.aboutSection = page.getByRole("button", { name: /about/i });
   }
 
   async navigateToHistory(): Promise<void> {
