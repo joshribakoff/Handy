@@ -9,6 +9,7 @@ mod helpers;
 mod input;
 mod llm_client;
 mod managers;
+mod operation_state;
 mod overlay;
 mod settings;
 mod shortcut;
