@@ -20,10 +20,12 @@
 //! # Design
 //!
 //! - **Pure state machine**: No side effects, no async, no mutexes inside
-//! - **Caller handles effects**: The orchestration layer checks state,
-//!   runs side effects (show UI, capture audio, etc.), then updates state
+//! - **State machine is source of truth**: Caller attempts a transition via
+//!   `maybe_*` methods. If the transition succeeds (returns `true`), the state
+//!   is already updated atomically. Caller then executes side effects (show UI,
+//!   capture audio, etc.). This ensures UI reflects actual state machine state.
 //! - **Synchronous**: State transitions are immediate; blocking is just
-//!   returning `TransitionResult::Blocked`
+//!   returning `TransitionResult::Blocked` (or `false` from controller methods)
 //!
 //! # Usage
 //!
@@ -45,12 +47,19 @@
 //! - #641: App crashes when push-to-talk hit twice in a row
 //! - #462: Race -> crash on rapid toggle
 //!
-//! # Future Enhancement
+//! # Future Enhancements
 //!
 //! TODO: Instead of blocking when user presses hotkey during Processing,
 //! we could set a "pending" flag. When processing completes, check the flag
 //! and auto-start the next recording instead of going to Idle. This would
 //! feel more responsive for rapid dictation workflows.
+//!
+//! TODO: Consider Mac-like real-time segmentation where we detect pauses
+//! during recording and create nested transcribe operations for each segment.
+//! This would make transcription feel real-time and greatly reduce the
+//! processing time at the end, minimizing the overlap period during which
+//! race conditions could occur. However, this adds complexity, so we focus
+//! on simplicity first (blocking concurrent operations) before adding this.
 
 use serde::Serialize;
 
@@ -114,16 +123,6 @@ impl OperationState {
                 },
             ),
         }
-    }
-
-    /// Check if a new operation can be started.
-    pub fn can_start(&self) -> bool {
-        matches!(self, OperationState::Idle)
-    }
-
-    /// Check if currently busy (recording or processing).
-    pub fn is_busy(&self) -> bool {
-        !matches!(self, OperationState::Idle)
     }
 }
 
@@ -208,8 +207,6 @@ mod tests {
     fn starts_idle() {
         let state = OperationState::default();
         assert_eq!(state, OperationState::Idle);
-        assert!(state.can_start());
-        assert!(!state.is_busy());
     }
 
     #[test]
@@ -219,8 +216,6 @@ mod tests {
 
         assert_eq!(new_state, OperationState::Recording);
         assert_eq!(result, TransitionResult::Ok);
-        assert!(!new_state.can_start());
-        assert!(new_state.is_busy());
     }
 
     #[test]
@@ -281,7 +276,6 @@ mod tests {
 
         assert_eq!(new_state, OperationState::Idle);
         assert_eq!(result, TransitionResult::Ok);
-        assert!(new_state.can_start());
     }
 
     #[test]
@@ -326,7 +320,7 @@ mod tests {
         state = new_state;
 
         // Now we can start again
-        assert!(state.can_start());
+        assert_eq!(state, OperationState::Idle);
     }
 
     #[test]

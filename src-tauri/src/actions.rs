@@ -4,6 +4,7 @@ use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, S
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::transcription::TranscriptionManager;
+use crate::operation_state::OperationController;
 use crate::settings::{get_settings, AppSettings, APPLE_INTELLIGENCE_PROVIDER_ID};
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
@@ -218,6 +219,16 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
+        // Check operation state machine - block if already recording or processing
+        let op_controller = app.state::<Arc<OperationController>>();
+        if !op_controller.maybe_start_recording() {
+            debug!(
+                "TranscribeAction::start blocked - operation already in progress (state: {:?})",
+                op_controller.current_state()
+            );
+            return;
+        }
+
         // Load model in the background
         let tm = app.state::<Arc<TranscriptionManager>>();
         tm.initiate_model_load();
@@ -290,10 +301,21 @@ impl ShortcutAction for TranscribeAction {
         let stop_time = Instant::now();
         debug!("TranscribeAction::stop called for binding: {}", binding_id);
 
+        // Check operation state machine - transition from Recording to Processing
+        let op_controller = app.state::<Arc<OperationController>>();
+        if !op_controller.maybe_stop_recording() {
+            debug!(
+                "TranscribeAction::stop blocked - not in recording state (state: {:?})",
+                op_controller.current_state()
+            );
+            return;
+        }
+
         let ah = app.clone();
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
         let tm = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
         let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
+        let op_ctrl = Arc::clone(&op_controller);
 
         change_tray_icon(app, TrayIconState::Transcribing);
         show_transcribing_overlay(app);
@@ -419,6 +441,9 @@ impl ShortcutAction for TranscribeAction {
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
             }
+
+            // Mark operation as complete in state machine
+            op_ctrl.complete_processing();
 
             // Clear toggle state now that transcription is complete
             if let Ok(mut states) = ah.state::<ManagedToggleState>().lock() {
